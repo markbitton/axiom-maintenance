@@ -147,6 +147,12 @@ for i in $(seq 1 10); do
   echo "  site not answering yet (try $i/10): $(head -c 200 <<<"${res:-no response}")"
   sleep 30
 done
+if [ -z "$ok" ]; then
+  say "Last lines of the app's error log"
+  log=$(SOFT=1 uapi Fileman get_file_content -G --data-urlencode "dir=$APP/storage/logs" \
+    --data-urlencode "file=laravel-$(date -u +%F).log" | jq -r '.data.content // "no log file for today"')
+  grep -E '^\[|Exception|Error' <<<"$log" | tail -n 15 | cut -c1-400 || true
+fi
 [ -n "$ok" ] || fail "The site didn't answer the setup call. DNS for $SITE_DOMAIN may still be spreading; re-run this job in a few minutes."
 
 if jq -e '.fresh_install == true' <<<"$res" >/dev/null; then

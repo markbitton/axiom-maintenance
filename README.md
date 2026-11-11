@@ -28,6 +28,12 @@ Seeded as Idaho (1, active), Arizona (2) and Utah (9). Turn locations on or off 
 
 The Rent Manager endpoint names in `config/axiom.php` follow RM12 conventions and can be changed through `.env` (`RM_ENDPOINT_*`) once confirmed against `https://axiom.api.rentmanager.com/Help`. Run `php artisan rm:test` to check the login for every location.
 
+## Beta site (automatic)
+
+Every push to `main` is tested and then copied to https://beta.axiom-maintenance.com by the **deploy beta** GitHub Action, using the cPanel API (no SSH). It needs two repository secrets: `CPANEL_TOKEN` (cPanel → Security → Manage API Tokens) and `CPANEL_HOST` (the cPanel address, e.g. `box1234.bluehost.com:2083`). `CPANEL_USER` is optional and defaults to `axiompdc`.
+
+The first run creates the subdomain (`~/axiom-beta`, site folder `~/axiom-beta/public`), the MySQL database, the `.env` file and the every-minute cron job, then loads demo techs, properties and tenants. The admin login is saved as the run's **beta-login** download for 7 days, and stays in `~/axiom-beta/.env` on the server. Later runs keep the server's `.env` and only upload code and run migrations.
+
 ## Deploying on Bluehost (shared hosting, cPanel)
 
 1. **Subdomain or domain**: point `axiom-maintenance.com` (or a subdomain) at a folder such as `~/axiom-maintenance/public`. Only `public/` may be web-visible.

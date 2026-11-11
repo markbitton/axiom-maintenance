@@ -4,6 +4,7 @@ use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\TechnicianController;
 use App\Http\Controllers\Api\IntakeController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DeployController;
 use App\Http\Controllers\QueueController;
 use App\Http\Controllers\StatusController;
 use App\Http\Controllers\Tech\JobController;
@@ -24,6 +25,9 @@ Route::prefix('api/intake')->middleware([VerifyIntakeKey::class, 'throttle:60,1'
     Route::post('/requests', [IntakeController::class, 'store']);
     Route::post('/photo-url', [IntakeController::class, 'photoUrl']);
 });
+
+// Post-upload step for the GitHub deploy job (shared key in X-Deploy-Key)
+Route::post('/_deploy/run', [DeployController::class, 'run'])->middleware('throttle:5,1');
 
 // Twilio webhooks
 Route::prefix('webhooks')->middleware(VerifyTwilioSignature::class)->group(function () {

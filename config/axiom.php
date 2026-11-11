@@ -22,6 +22,10 @@ return [
     // Shared secret the axiom-properties.com site sends in X-Axiom-Key.
     'intake_key' => env('INTAKE_API_KEY'),
 
+    // Shared secret the GitHub deploy job sends to run migrations after an upload. Empty turns the hook off.
+    'deploy_key' => env('DEPLOY_KEY'),
+    'demo_data' => (bool) env('DEMO_DATA', false),
+
     'sms' => [
         'driver' => env('SMS_DRIVER', 'log'), // log | twilio
         'from' => env('SMS_FROM_NUMBER'),     // the one Axiom business number, E.164

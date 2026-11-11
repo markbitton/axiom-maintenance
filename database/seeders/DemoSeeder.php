@@ -20,16 +20,17 @@ class DemoSeeder extends Seeder
         $this->call(DatabaseSeeder::class);
         $idaho = Location::where('rm_location_id', 1)->first();
         $skills = Skill::pluck('id', 'slug');
+        $password = env('DEMO_PASSWORD', 'demo-password');
 
-        User::firstOrCreate(['email' => 'admin@example.test'], ['name' => 'Demo Admin', 'password' => 'demo-password', 'role' => 'admin', 'location_id' => $idaho->id]);
-        User::firstOrCreate(['email' => 'scheduler@example.test'], ['name' => 'Demo Scheduler', 'password' => 'demo-password', 'role' => 'scheduler', 'location_id' => $idaho->id]);
+        User::firstOrCreate(['email' => 'admin@example.test'], ['name' => 'Demo Admin', 'password' => $password, 'role' => 'admin', 'location_id' => $idaho->id]);
+        User::firstOrCreate(['email' => 'scheduler@example.test'], ['name' => 'Demo Scheduler', 'password' => $password, 'role' => 'scheduler', 'location_id' => $idaho->id]);
 
         foreach ([
             ['Mike Plumber', 'mike@example.test', ['plumbing' => 3, 'general' => 2, 'appliance' => 1], 43.6150, -116.2023, true],
             ['Dana Sparks', 'dana@example.test', ['electrical' => 3, 'hvac' => 2, 'general' => 2], 43.5826, -116.5635, false],
             ['Sam Fixit', 'sam@example.test', ['general' => 3, 'locks' => 3, 'pest' => 2, 'appliance' => 2], 43.6629, -116.6874, false],
         ] as [$name, $email, $levels, $lat, $lng, $onCall]) {
-            $user = User::firstOrCreate(['email' => $email], ['name' => $name, 'password' => 'demo-password', 'role' => 'tech', 'location_id' => $idaho->id]);
+            $user = User::firstOrCreate(['email' => $email], ['name' => $name, 'password' => $password, 'role' => 'tech', 'location_id' => $idaho->id]);
             $tech = Technician::firstOrCreate(['user_id' => $user->id], [
                 'location_id' => $idaho->id, 'start_lat' => $lat, 'start_lng' => $lng, 'on_call' => $onCall,
             ]);

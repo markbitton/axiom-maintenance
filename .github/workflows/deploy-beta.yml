@@ -1,0 +1,77 @@
+name: deploy beta
+
+# Every push to main is tested, then copied to beta.axiom-maintenance.com through the cPanel API.
+# Needs repository secrets CPANEL_HOST and CPANEL_TOKEN (CPANEL_USER is optional).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-beta
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CPANEL_HOST: ${{ secrets.CPANEL_HOST }}
+      CPANEL_TOKEN: ${{ secrets.CPANEL_TOKEN }}
+      CPANEL_USER: ${{ secrets.CPANEL_USER || 'axiompdc' }}
+      SITE_DOMAIN: beta.axiom-maintenance.com
+      APP_DIR: axiom-beta
+    steps:
+      - name: Check the cPanel secrets are set
+        id: gate
+        run: |
+          if [ -z "$CPANEL_HOST" ] || [ -z "$CPANEL_TOKEN" ]; then
+            echo "::notice::CPANEL_HOST and CPANEL_TOKEN secrets aren't set yet, so nothing was deployed."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.ready == 'true'
+
+      - uses: shivammathur/setup-php@v2
+        if: steps.gate.outputs.ready == 'true'
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_sqlite, intl
+          coverage: none
+
+      - name: Test
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress
+          cp .env.example .env && php artisan key:generate
+          php artisan test
+
+      - name: Build
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          rm -rf vendor .env
+          composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist --no-progress
+          rm -rf tests storage/logs/*.log database/database.sqlite
+          zip -qr9 "$RUNNER_TEMP/build.zip" . -x '.git/*' '.github/*' 'node_modules/*' 'scripts/*'
+          ls -lh "$RUNNER_TEMP/build.zip"
+
+      - name: Deploy to beta
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          BUILD_ZIP: ${{ runner.temp }}/build.zip
+          LOGIN_FILE: ${{ github.workspace }}/beta-login.txt
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          DEMO_DATA: 'true'
+        run: bash scripts/deploy/cpanel-deploy.sh
+
+      - name: Save first-deploy login details
+        if: steps.gate.outputs.ready == 'true' && hashFiles('beta-login.txt') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: beta-login
+          path: beta-login.txt
+          retention-days: 7

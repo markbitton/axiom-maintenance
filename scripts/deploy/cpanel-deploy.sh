@@ -45,6 +45,8 @@ api2() {
   fi
   echo "$out"
 }
+envval() { sed -n "s/^$1=//p" <<<"$ENV_CONTENT" | tr -d '"\r' | head -n1; }
+UA='AxiomMaintenanceDeploy/1.0 (+github-actions)'
 rand() { openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c "${1:-32}"; }
 
 say "Checking the cPanel login"
@@ -84,9 +86,7 @@ api2 Fileman fileop -d op=unlink --data-urlencode "sourcefiles=$APP/release.zip"
 env_json=$(SOFT=1 uapi Fileman get_file_content -G --data-urlencode "dir=$APP" --data-urlencode "file=.env")
 if [ "$(jq -r '.status' <<<"$env_json")" = 1 ]; then
   say "Settings file already there; keeping it"
-  DEPLOY_KEY=$(jq -r '.data.content' <<<"$env_json" | sed -n 's/^DEPLOY_KEY=//p' | tr -d '"\r')
-  mask "$DEPLOY_KEY"
-  [ -n "$DEPLOY_KEY" ] || fail "The .env on the server has no DEPLOY_KEY line."
+  ENV_CONTENT=$(jq -r '.data.content' <<<"$env_json")
 else
   say "First deploy: creating the database and settings file"
   prefix=$(SOFT=1 uapi Mysql get_restrictions | jq -r '.data.prefix // empty')
@@ -121,34 +121,44 @@ else
       .env.example > "$envfile"
   printf '\n# --- Deploy ---\nDEPLOY_KEY=%s\nDEMO_DATA=%s\nDEMO_PASSWORD=%s\n' "$DEPLOY_KEY" "$DEMO_DATA" "$ADMIN_PASSWORD" >> "$envfile"
   uapi Fileman save_file_content --data-urlencode "dir=$APP" --data-urlencode "file=.env" --data-urlencode "content@$envfile" >/dev/null
+  ENV_CONTENT=$(cat "$envfile")
   rm -f "$envfile"
-  {
-    echo "Beta site: https://$SITE_DOMAIN/login"
-    echo "Admin login: $ADMIN_EMAIL"
-    echo "Password: $ADMIN_PASSWORD"
-    [ "$DEMO_DATA" = true ] && echo "Demo logins (same password): scheduler@example.test, mike@example.test, dana@example.test, sam@example.test"
-    echo "Intake key for the axiom-properties.com form: $INTAKE_KEY"
-  } > "$LOGIN_FILE"
 fi
+
+for k in APP_KEY DB_PASSWORD ADMIN_PASSWORD INTAKE_API_KEY; do mask "$(envval $k)"; done
+DEPLOY_KEY=$(envval DEPLOY_KEY); mask "$DEPLOY_KEY"
+[ -n "$DEPLOY_KEY" ] || fail "The .env on the server has no DEPLOY_KEY line."
 
 say "Turning on HTTPS"
 SOFT=1 uapi SSL start_autossl_check >/dev/null || true
 
 say "Running database setup on the site"
 ok=""
-for i in $(seq 1 20); do
+for i in $(seq 1 10); do
   for tls in "" "-k"; do
-    res=$(curl -sS $tls --max-time 120 -X POST -H "X-Deploy-Key: $DEPLOY_KEY" -H 'Accept: application/json' \
+    res=$(curl -sS $tls --max-time 120 -X POST -A "$UA" -H "X-Deploy-Key: $DEPLOY_KEY" -H 'Accept: application/json' \
+      -H 'Content-Type: application/json' -d '{"run":true}' \
       "https://$SITE_DOMAIN/_deploy/run" 2>/dev/null || true)
     if jq -e '.ok == true' <<<"$res" >/dev/null 2>&1; then
       ok=1; [ -n "$tls" ] && echo "::warning::HTTPS certificate for $SITE_DOMAIN isn't ready yet; it usually appears within an hour."
-      echo "$res" | jq -c .; break 2
+      echo "$res" | jq -c 'del(.migrate)'; break 2
     fi
   done
-  echo "  site not answering yet (try $i/20): $(head -c 200 <<<"${res:-no response}")"
+  echo "  site not answering yet (try $i/10): $(head -c 200 <<<"${res:-no response}")"
   sleep 30
 done
 [ -n "$ok" ] || fail "The site didn't answer the setup call. DNS for $SITE_DOMAIN may still be spreading; re-run this job in a few minutes."
+
+if jq -e '.fresh_install == true' <<<"$res" >/dev/null; then
+  {
+    echo "Beta site: https://$SITE_DOMAIN/login"
+    echo "Admin login: $(envval ADMIN_EMAIL)"
+    echo "Password: $(envval ADMIN_PASSWORD)"
+    [ "$(envval DEMO_DATA)" = true ] && echo "Demo logins (same password): scheduler@example.test, mike@example.test, dana@example.test, sam@example.test"
+    echo "Intake key for the axiom-properties.com form: $(envval INTAKE_API_KEY)"
+  } > "$LOGIN_FILE"
+  say "Saved the login details as this run's beta-login download"
+fi
 
 say "Checking the every-minute cron job"
 CRON_CMD="cd $APP && $PHPBIN artisan schedule:run >> /dev/null 2>&1"
@@ -159,6 +169,6 @@ else
   say "Added cron job"
 fi
 
-code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "https://$SITE_DOMAIN/up" || true)
+code=$(curl -s -A "$UA" -o /dev/null -w '%{http_code}' --max-time 30 "https://$SITE_DOMAIN/up" || true)
 say "Health check: https://$SITE_DOMAIN/up answered $code"
 say "Done: https://$SITE_DOMAIN"

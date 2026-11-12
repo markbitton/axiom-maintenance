@@ -32,7 +32,9 @@ class DeployController extends Controller
         foreach (['config:clear', 'route:clear', 'view:clear', 'event:clear'] as $command) {
             Artisan::call($command);
         }
-        Artisan::call('migrate', ['--force' => true]);
+        // MySQL can't roll back a half-applied migration, so until the first users exist a failed
+        // first run is retried from an empty database instead of tripping over its leftover tables.
+        Artisan::call($out['fresh_install'] ? 'migrate:fresh' : 'migrate', ['--force' => true]);
         $out['migrate'] = trim(Artisan::output());
 
         $seeder = config('axiom.demo_data') && Technician::count() === 0 ? DemoSeeder::class : DatabaseSeeder::class;

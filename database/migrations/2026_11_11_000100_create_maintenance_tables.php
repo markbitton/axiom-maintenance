@@ -146,8 +146,8 @@ return new class extends Migration
             $table->foreignId('work_order_id')->constrained()->cascadeOnDelete();
             $table->foreignId('technician_id')->constrained()->cascadeOnDelete();
             $table->unsignedTinyInteger('option_number');
-            $table->timestamp('starts_at');
-            $table->timestamp('ends_at');
+            $table->dateTime('starts_at');
+            $table->dateTime('ends_at');
             $table->decimal('score', 8, 3)->default(0);
             $table->timestamp('sent_at')->nullable();
             $table->timestamp('reminded_at')->nullable();

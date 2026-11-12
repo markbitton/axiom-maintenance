@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\TechnicianController;
 use App\Http\Controllers\Api\IntakeController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\QueueController;
+use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\StatusController;
 use App\Http\Controllers\Tech\JobController;
 use App\Http\Controllers\WebhookController;
@@ -38,6 +39,7 @@ Route::middleware('auth')->group(function () {
     Route::middleware('role:admin')->prefix('admin')->name('admin.')->group(function () {
         Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
         Route::post('/locations/{location}/toggle', [DashboardController::class, 'toggleLocation'])->name('locations.toggle');
+        Route::post('/demo/reset', [DashboardController::class, 'resetDemo'])->name('demo.reset');
         Route::get('/people', [TechnicianController::class, 'index'])->name('technicians');
         Route::get('/people/new', [TechnicianController::class, 'create'])->name('technicians.create');
         Route::post('/people', [TechnicianController::class, 'store'])->name('technicians.store');
@@ -47,6 +49,9 @@ Route::middleware('auth')->group(function () {
 
     Route::middleware('role:admin,scheduler')->group(function () {
         Route::get('/queue', [QueueController::class, 'index'])->name('queue');
+        Route::get('/schedule', [ScheduleController::class, 'index'])->name('schedule');
+        Route::post('/schedule/move', [ScheduleController::class, 'move'])->name('schedule.move');
+        Route::get('/map', [ScheduleController::class, 'map'])->name('map');
         Route::get('/work-orders/{workOrder}', [QueueController::class, 'show'])->name('queue.show');
         Route::post('/work-orders/{workOrder}/book', [QueueController::class, 'book'])->name('queue.book');
         Route::post('/work-orders/{workOrder}/reoffer', [QueueController::class, 'reoffer'])->name('queue.reoffer');

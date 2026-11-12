@@ -173,6 +173,15 @@ class WorkOrder extends Model
         return trim($base.($unit ? ' #'.$unit : ''));
     }
 
+    public function tradeLabel(): string
+    {
+        return match ($this->trade) {
+            null, '' => 'Unsorted',
+            'hvac' => 'HVAC',
+            default => ucfirst($this->trade),
+        };
+    }
+
     public function tenantPhone(): ?string
     {
         return $this->tenant?->phone ?: $this->contact_phone;

@@ -4,8 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Models\Technician;
 use App\Models\User;
+use App\Models\WorkOrder;
 use Database\Seeders\DatabaseSeeder;
 use Database\Seeders\DemoSeeder;
+use Database\Seeders\DemoWorkOrdersSeeder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
@@ -40,6 +42,11 @@ class DeployController extends Controller
         $seeder = config('axiom.demo_data') && Technician::count() === 0 ? DemoSeeder::class : DatabaseSeeder::class;
         Artisan::call('db:seed', ['--class' => $seeder, '--force' => true]);
         $out['seed'] = class_basename($seeder);
+
+        if (config('axiom.demo_data') && WorkOrder::count() === 0) {
+            Artisan::call('db:seed', ['--class' => DemoWorkOrdersSeeder::class, '--force' => true]);
+            $out['demo_work_orders'] = WorkOrder::count();
+        }
 
         return response()->json(['ok' => true] + $out);
     }

@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1d4ed8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <link rel="manifest" href="/manifest.webmanifest">
     <title>@yield('title', 'Axiom Maintenance')</title>
     <style>
@@ -13,7 +14,7 @@
         a { color:var(--brand); text-decoration:none; }
         header { background:var(--card); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
         header strong { margin-right:auto; }
-        main { max-width:1100px; margin:0 auto; padding:16px; }
+        main { max-width:1100px; margin:0 auto; padding:16px; } main.wide { max-width:none; }
         .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px; }
         .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); }
         .stat b { display:block; font-size:26px; }
@@ -47,6 +48,8 @@
         <a href="{{ route('admin.technicians') }}">People</a>
     @endif
     @if(auth()->user()->hasRole('admin', 'scheduler'))
+        <a href="{{ route('schedule') }}">Schedule</a>
+        <a href="{{ route('map') }}">Map</a>
         <a href="{{ route('queue') }}">Queue</a>
     @endif
     @if(auth()->user()->technician)
@@ -55,7 +58,7 @@
     <form method="post" action="{{ route('logout') }}" style="margin:0">@csrf<button class="secondary">Sign out</button></form>
 </header>
 @endauth
-<main>
+<main class="@hasSection('wide') wide @endif">
     @if(session('status'))<div class="flash">{{ session('status') }}</div>@endif
     @if($errors->any())<div class="error">{{ $errors->first() }}</div>@endif
     @yield('content')

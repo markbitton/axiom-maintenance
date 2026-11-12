@@ -10,6 +10,13 @@
     <div class="card stat"><span class="muted">Average tenant rating</span><b>{{ $avg_rating ?: '–' }}</b></div>
 </div>
 
+@if($demo)
+<div class="card row" style="align-items:center">
+    <div><b>Beta test data.</b> <span class="muted">The work orders here are made up. Reset them any time to get a fresh set dated around today.</span></div>
+    <form method="post" action="{{ route('admin.demo.reset') }}" style="flex:0" onsubmit="return confirm('Delete every work order and make a fresh demo set?')">@csrf<button class="secondary">Reset demo data</button></form>
+</div>
+@endif
+
 <div class="card">
     <h3 style="margin-top:0">Service locations</h3>
     <p class="muted">Only active locations pull work orders from Rent Manager.</p>

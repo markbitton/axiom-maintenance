@@ -144,16 +144,26 @@ for i in $(seq 1 10); do
       echo "$res" | jq -c 'del(.migrate)'; break 2
     fi
   done
-  echo "  site not answering yet (try $i/10): $(head -c 200 <<<"${res:-no response}")"
+  echo "  site not answering yet (try $i/10): $(head -c 200 <<<"${res:-no response}" | tr '\n' ' ')"
+  # The app itself answered with an error: waiting won't help, go straight to the logs.
+  jq -e '.message' <<<"$res" >/dev/null 2>&1 && break
   sleep 30
 done
 if [ -z "$ok" ]; then
-  say "Last lines of the app's error log"
-  log=$(SOFT=1 uapi Fileman get_file_content -G --data-urlencode "dir=$APP/storage/logs" \
-    --data-urlencode "file=laravel-$(date -u +%F).log" | jq -r '.data.content // "no log file for today"')
-  grep -E '^\[|Exception|Error' <<<"$log" | tail -n 15 | cut -c1-400 || true
+  showlog() { # dir file
+    local c
+    c=$(SOFT=1 uapi Fileman get_file_content -G --data-urlencode "dir=$1" --data-urlencode "file=$2" | jq -r '.data.content // empty')
+    [ -n "$c" ] || return 0
+    say "Last lines of $1/$2"
+    grep -vE '^#[0-9]+ |^\[stacktrace\]|^"}$' <<<"$c" | tail -n 25 | cut -c1-500
+  }
+  for f in $(SOFT=1 uapi Fileman list_files -G --data-urlencode "dir=$APP/storage/logs" | jq -r '.data[]?.file' | grep '\.log$' | sort | tail -n 2); do
+    showlog "$APP/storage/logs" "$f"
+  done
+  showlog "$APP/public" error_log
+  showlog "$APP" error_log
 fi
-[ -n "$ok" ] || fail "The site didn't answer the setup call. DNS for $SITE_DOMAIN may still be spreading; re-run this job in a few minutes."
+[ -n "$ok" ] || fail "The setup call on $SITE_DOMAIN didn't succeed (see the log lines above). If there was no response at all, DNS may still be spreading; re-run in a few minutes."
 
 if jq -e '.fresh_install == true' <<<"$res" >/dev/null; then
   {

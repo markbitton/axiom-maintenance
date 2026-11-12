@@ -28,7 +28,10 @@ class DeployController extends Controller
         // True only on the run that creates the first logins, so the deploy job hands them over once.
         $out['fresh_install'] = ! Schema::hasTable('users') || User::count() === 0;
 
-        Artisan::call('optimize:clear');
+        // Not optimize:clear: its cache:clear needs the cache table, which may not exist yet.
+        foreach (['config:clear', 'route:clear', 'view:clear', 'event:clear'] as $command) {
+            Artisan::call($command);
+        }
         Artisan::call('migrate', ['--force' => true]);
         $out['migrate'] = trim(Artisan::output());
 

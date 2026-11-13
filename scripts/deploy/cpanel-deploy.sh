@@ -141,7 +141,7 @@ for i in $(seq 1 10); do
       "https://$SITE_DOMAIN/_deploy/run" 2>/dev/null || true)
     if jq -e '.ok == true' <<<"$res" >/dev/null 2>&1; then
       ok=1; [ -n "$tls" ] && echo "::warning::HTTPS certificate for $SITE_DOMAIN isn't ready yet; it usually appears within an hour."
-      echo "$res" | jq -c 'del(.migrate)'; break 2
+      echo "$res" | jq 'del(.migrate)'; break 2
     fi
   done
   echo "  site not answering yet (try $i/10): $(head -c 200 <<<"${res:-no response}" | tr '\n' ' ')"

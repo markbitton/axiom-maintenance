@@ -52,7 +52,7 @@ class DeployController extends Controller
 
         // Counts only (no personal data), so the deploy log shows what the site will display.
         $out['check'] = [
-            'db_now' => (string) DB::scalar('select now()'),
+            'db_now' => DB::getDriverName() === 'mysql' ? (string) DB::scalar('select now()') : null,
             'app_now_utc' => now()->utc()->toDateTimeString(),
             'users' => User::selectRaw('role, location_id, count(*) as n')->groupBy('role', 'location_id')->get(),
             'techs' => Technician::selectRaw('location_id, active, count(*) as n')->groupBy('location_id', 'active')->get(),

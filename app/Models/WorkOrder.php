@@ -121,6 +121,16 @@ class WorkOrder extends Model
         return $this->hasMany(WorkOrderPart::class);
     }
 
+    public function timeEntries(): HasMany
+    {
+        return $this->hasMany(TimeEntry::class);
+    }
+
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
     public function activity(): HasMany
     {
         return $this->hasMany(Activity::class);

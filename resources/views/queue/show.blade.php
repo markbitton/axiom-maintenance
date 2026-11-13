@@ -72,6 +72,45 @@
 </div>
 @endif
 
+<div class="card">
+    <h3 style="margin-top:0">Time &amp; billing</h3>
+    @if($wo->timeEntries->whereIn('type', ['travel', 'work'])->isNotEmpty())
+        <table>
+            <tr><th>When</th><th>Tech</th><th>Clock</th><th style="text-align:right">Min</th><th>Billed</th></tr>
+            @foreach($wo->timeEntries->whereIn('type', ['travel', 'work'])->sortBy('started_at') as $e)
+                <tr>
+                    <td>{{ $e->started_at->setTimezone($tz)->format('M j g:i A') }}{{ $e->ended_at ? '' : ' (running)' }}</td>
+                    <td>{{ $e->technician?->name }}</td>
+                    <td>{{ $e->type === 'work' ? 'On the job' : 'Driving' }}</td>
+                    <td style="text-align:right">{{ $e->minutes() }}</td>
+                    <td>@if($e->invoice)<a href="{{ route('invoices.show', $e->invoice) }}">{{ $e->invoice->number }}</a>@else<span class="muted">not yet</span>@endif</td>
+                </tr>
+            @endforeach
+        </table>
+    @else
+        <p class="muted">No time on this job yet. It's tracked when the tech taps "On my way" and "Arrived".</p>
+    @endif
+
+    @if($wo->invoices->isNotEmpty())
+        <p style="margin-bottom:4px"><b>Invoices</b></p>
+        @foreach($wo->invoices->sortBy('id') as $inv)
+            <div><a href="{{ route('invoices.show', $inv) }}">{{ $inv->number }}</a> · ${{ number_format((float) $inv->total, 2) }} · <span class="pill {{ $inv->status === 'paid' ? 'ok' : ($inv->status === 'void' ? 'emergency' : '') }}">{{ $inv->status }}</span> <span class="muted">{{ $inv->created_at->setTimezone($tz)->format('M j') }}</span></div>
+        @endforeach
+    @endif
+
+    @php($billable = collect($unbilled)->where('kind', '!=', 'fee'))
+    @if($billable->isNotEmpty())
+        <p style="margin-bottom:4px"><b>Not billed yet</b> <span class="muted">· ${{ number_format(collect($unbilled)->sum('amount'), 2) }}</span></p>
+        @foreach($unbilled as $l)<div class="muted">{{ $l['description'] }} · ${{ number_format($l['amount'], 2) }}</div>@endforeach
+        <form method="post" action="{{ route('invoices.store', $wo) }}" style="margin-top:8px">@csrf
+            <div class="row"><div><input name="notes" placeholder="Note on the invoice (optional)" maxlength="2000"></div><div style="flex:0"><button>Create invoice for unbilled work</button></div></div>
+        </form>
+        <p class="muted">Only what isn't on an earlier invoice is billed, so you can invoice part of a job now and the rest after the next visit.</p>
+    @elseif($wo->invoices->isNotEmpty())
+        <p class="muted">Everything on this job so far has been billed.</p>
+    @endif
+</div>
+
 @if($photoUrls->isNotEmpty())
 <div class="card"><h3 style="margin-top:0">Photos</h3>@foreach($photoUrls as $url)<img src="{{ $url }}" alt="Job photo" style="max-width:220px;border-radius:8px;margin:4px">@endforeach</div>
 @endif

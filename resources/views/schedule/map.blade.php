@@ -50,7 +50,7 @@
                 <div class="muted">{{ $waiting->count() }} open {{ \Illuminate\Support\Str::plural('request', $waiting->count()) }} (gray dots)</div>
             </div>
         @endif
-        <p class="muted">Lines are straight between stops, in the order each tech should go. Drive times are estimates until a Google Maps key is added.</p>
+        <p class="muted">Each route starts and ends at the home office (⌂). Lines are straight between stops, in the order each tech should go. Drive times are estimates until a Google Maps key is added.</p>
     </div>
 </div>
 
@@ -58,7 +58,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
 (() => {
-    const routes = @json($points), waiting = @json($waiting);
+    const routes = @json($points), waiting = @json($waiting), office = @json($office);
     const map = L.map('map', { scrollWheelZoom: true });
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -73,7 +73,7 @@
         const g = L.layerGroup().addTo(map), line = [];
         markers[i] = [];
         if (r.start) {
-            L.marker(r.start, { icon: pin('⌂', r.color, 'home') }).bindPopup(`<b>${esc(r.name)}</b><br>Start of day`).addTo(g);
+            if (!office) L.marker(r.start, { icon: pin('⌂', r.color, 'home') }).bindPopup(`<b>${esc(r.name)}</b><br>Start of day`).addTo(g);
             line.push(r.start); bounds.push(r.start);
         }
         r.stops.forEach(s => {
@@ -82,6 +82,7 @@
                 .bindPopup(`<b>${s.n}. ${esc(s.time)}</b> · ${esc(r.name)}<br>${esc(s.title)}<br><a href="${s.url}">${esc(s.ref)}</a>${done ? ' · done' : ''}`).addTo(g);
             markers[i].push(m); line.push([s.lat, s.lng]); bounds.push([s.lat, s.lng]);
         });
+        if (office && line.length > 1) line.push([office.lat, office.lng]);
         if (line.length > 1) L.polyline(line, { color: r.color, weight: 4, opacity: 0.75 }).addTo(g);
         layers[i] = g;
     });
@@ -94,7 +95,13 @@
     });
     layers.waiting = wg;
 
-    if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] }); else map.setView([43.615, -116.35], 11);
+    if (office) {
+        L.marker([office.lat, office.lng], { icon: L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15],
+            html: '<div class="pin home" style="background:#111827;width:30px;height:30px;line-height:26px;font-size:16px">⌂</div>' }), zIndexOffset: 1000 })
+            .bindPopup(`<b>Home office</b><br>${esc(office.address || '')}<br>Every route starts and ends here.`).addTo(map);
+        bounds.push([office.lat, office.lng]);
+    }
+    if (bounds.length) map.fitBounds(bounds, { padding: [30, 30] }); else map.setView([42.8713, -112.4455], 12);
 
     document.querySelectorAll('[data-toggle]').forEach(cb => cb.addEventListener('change', () => {
         const g = layers[cb.dataset.toggle]; cb.checked ? g.addTo(map) : map.removeLayer(g);

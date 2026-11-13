@@ -9,7 +9,12 @@ class Skill extends Model
 {
     public const SLUGS = ['plumbing', 'electrical', 'hvac', 'appliance', 'locks', 'pest', 'general'];
 
-    protected $fillable = ['slug', 'name'];
+    protected $fillable = ['slug', 'name', 'hourly_rate', 'service_call_fee', 'licensed'];
+
+    protected function casts(): array
+    {
+        return ['hourly_rate' => 'float', 'service_call_fee' => 'float', 'licensed' => 'boolean'];
+    }
 
     public function technicians(): BelongsToMany
     {

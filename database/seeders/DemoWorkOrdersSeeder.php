@@ -3,19 +3,28 @@
 namespace Database\Seeders;
 
 use App\Models\Activity;
+use App\Models\Invoice;
+use App\Models\InvoiceLine;
 use App\Models\Location;
+use App\Models\LocationPing;
 use App\Models\Message;
+use App\Models\Part;
 use App\Models\Property;
 use App\Models\Skill;
 use App\Models\SlotOffer;
 use App\Models\StockLocation;
 use App\Models\Technician;
 use App\Models\Tenant;
+use App\Models\TimeEntry;
 use App\Models\Unit;
 use App\Models\User;
 use App\Models\WorkOrder;
+use App\Models\WorkOrderPart;
+use App\Services\Billing\Invoicer;
+use App\Services\Geo\Geocoder;
 use App\Services\Scheduling\AutoScheduler;
 use App\Services\Scheduling\Geo;
+use App\Services\Scheduling\RouteOptimizer;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -26,20 +35,38 @@ use Illuminate\Support\Facades\DB;
  */
 class DemoWorkOrdersSeeder extends Seeder
 {
-    /** [name, street, city, lat, lng, units] — real Treasure Valley areas, made-up addresses. */
+    /** Home office used for testing. Geocoded on the server; the fallback is central Pocatello. */
+    public const OFFICE = ['477 Taft Ave, Pocatello, ID 83201', 42.8713, -112.4455];
+
+    /** [name, street, city, lat, lng, units, managed by Axiom PM?, bill to] — real Pocatello-area places, made-up addresses. */
     public const PROPERTIES = [
-        ['Maple Court', '1200 W Maple Ct', 'Boise', 43.6187, -116.2146, ['101', '102', '201']],
-        ['Riverside Apartments', '450 E Riverside Dr', 'Meridian', 43.6121, -116.3915, ['A1', 'A2']],
-        ['Canyon View', '88 Canyon View Ln', 'Nampa', 43.5407, -116.5635, ['1', '2']],
-        ['Eagle Ridge Townhomes', '2150 E State St', 'Eagle', 43.6955, -116.3540, ['3', '7', '12']],
-        ['Bench Duplexes', '1740 S Vista Ave', 'Boise', 43.5905, -116.2105, ['A', 'B']],
-        ['Linden Street Fourplex', '615 Linden St', 'Caldwell', 43.6629, -116.6874, ['1', '2', '3', '4']],
-        ['Five Mile Commons', '3300 N Five Mile Rd', 'Boise', 43.6390, -116.3180, ['110', '214', '305']],
-        ['Kuna Meadows', '480 W Main St', 'Kuna', 43.4918, -116.4201, ['A', 'B']],
-        ['Harris Ranch Cottages', '3900 E Parkcenter Blvd', 'Boise', 43.5730, -116.1440, ['5', '9']],
-        ['Star Crossing', '120 N Star Rd', 'Star', 43.6921, -116.4935, ['1', '2']],
-        ['Garrity Flats', '1600 E Garrity Blvd', 'Nampa', 43.5899, -116.5446, ['101', '102', '103']],
-        ['North End Bungalow', '1514 N 14th St', 'Boise', 43.6280, -116.2050, ['Main']],
+        ['Maple Court', '1200 N Maple St', 'Pocatello', 42.8790, -112.4470, ['101', '102', '201']],
+        ['Riverside Apartments', '450 S 2nd Ave', 'Pocatello', 42.8560, -112.4430, ['A1', 'A2']],
+        ['Canyon View', '88 Satterfield Dr', 'Pocatello', 42.8840, -112.4140, ['1', '2']],
+        ['Yellowstone Townhomes', '4800 Yellowstone Ave', 'Chubbuck', 42.9150, -112.4640, ['3', '7', '12']],
+        ['Bench Duplexes', '1740 S 5th Ave', 'Pocatello', 42.8440, -112.4270, ['A', 'B']],
+        ['Center Street Fourplex', '615 E Center St', 'Pocatello', 42.8650, -112.4400, ['1', '2', '3', '4']],
+        ['Alameda Commons', '1300 E Alameda Rd', 'Pocatello', 42.8930, -112.4350, ['110', '214', '305']],
+        ['Inkom Meadows', '120 N Rapid St', 'Inkom', 42.7960, -112.2480, ['A', 'B']],
+        ['Highland Cottages', '2300 Hiline Rd', 'Pocatello', 42.8990, -112.4120, ['5', '9']],
+        ['Chubbuck Crossing', '5100 Hawthorne Rd', 'Chubbuck', 42.9300, -112.4800, ['1', '2']],
+        ['Quinn Road Flats', '900 W Quinn Rd', 'Pocatello', 42.9010, -112.4690, ['101', '102', '103']],
+        ['Old Town Bungalow', '514 N Arthur Ave', 'Pocatello', 42.8650, -112.4520, ['Main']],
+        ['Broadway Rentals', '300 N Broadway St', 'Blackfoot', 43.1910, -112.3450, ['1', '2'], false, 'Hansen Family Trust (owner)'],
+        ['Ross Park Duplex', '2900 S 2nd Ave', 'Pocatello', 42.8320, -112.4230, ['A', 'B'], false, 'R. Ortiz (owner)'],
+    ];
+
+    /** Demo billing: [hourly, service call fee, licensed] by kind of work. Only filled in where nobody has set a rate yet. */
+    private const RATES = [
+        'plumbing' => [95, 75, true], 'electrical' => [105, 75, true], 'hvac' => [110, 89, true], 'appliance' => [85, 59, false],
+        'locks' => [75, 49, false], 'pest' => [70, 49, false], 'general' => [70, 49, false],
+    ];
+
+    private const PART_COSTS = [
+        'PLB-WAX' => 6.5, 'PLB-FILL' => 14.0, 'PLB-FLAP' => 7.5, 'PLB-SUPPLY' => 9.0, 'PLB-PTRAP' => 12.0, 'PLB-CART' => 22.0,
+        'ELC-GFCI' => 19.0, 'ELC-OUT' => 3.5, 'ELC-SW' => 4.0, 'ELC-SMOKE' => 24.0, 'ELC-BREAKER' => 11.0, 'HVAC-FLT' => 9.5,
+        'HVAC-IGN' => 38.0, 'HVAC-TSTAT' => 65.0, 'HVAC-CAP' => 21.0, 'APP-DWHOSE' => 16.0, 'APP-ELEM' => 42.0, 'LCK-DB' => 34.0,
+        'LCK-KNOB' => 28.0, 'LCK-REKEY' => 15.0,
     ];
 
     /** [trade, urgency, minutes, description] */
@@ -73,18 +100,23 @@ class DemoWorkOrdersSeeder extends Seeder
     private const WINDOWS = [8, 10, 13, 15];
 
     /** Bump when the demo set changes; beta's deploy then rebuilds it. */
-    public const VERSION = 3;
+    public const VERSION = 4;
 
     public function run(): void
     {
-        mt_srand(20261112);
+        mt_srand(20261113);
         $idaho = Location::where('rm_location_id', 1)->firstOrFail();
         $tz = $idaho->timezone;
+        $office = $this->office($idaho);
         $this->moreTechs($idaho);
-        $techs = Technician::with('skills', 'user')->where('location_id', $idaho->id)->where('active', true)->get();
+        $this->rates();
+        $techs = Technician::with('skills', 'user', 'location')->where('location_id', $idaho->id)->where('active', true)->get();
         if ($techs->isEmpty()) {
             return;
         }
+        // Everyone starts the day at the home office.
+        Technician::whereIn('id', $techs->pluck('id'))->update(['start_lat' => $office[0], 'start_lng' => $office[1], 'start_address' => $idaho->office_address]);
+        $techs->each->refresh();
 
         $tenants = $this->properties($idaho);
         $today = CarbonImmutable::now($tz)->startOfDay();
@@ -94,16 +126,20 @@ class DemoWorkOrdersSeeder extends Seeder
         $now = CarbonImmutable::now($tz);
         foreach ($days->filter(fn ($d) => $d->lte($today)) as $day) {
             foreach ($techs as $tech) {
-                $windows = collect(self::WINDOWS)->shuffle()->take(mt_rand(2, 4))->sort()->values();
+                $windows = collect(self::WINDOWS)->shuffle()->take(mt_rand(3, 4))->sort()->values();
+                $worked = collect();
                 foreach ($windows as $hour) {
                     $start = $day->setTime($hour, [0, 0, 30][mt_rand(0, 2)]);
                     if ($start->gte($now)) {
                         continue;
                     }
-                    $this->scheduled($idaho, $this->nearbyTenant($tenants, $tech), $tech, $this->jobFor($tech), $start, $today);
+                    $worked->push($this->scheduled($idaho, $this->nearbyTenant($tenants, $tech), $tech, $this->jobFor($tech), $start, $today));
                 }
+                $this->clockDay($tech, $day, $worked, $office, $now);
             }
         }
+        $this->twoVisitJob($idaho, $tenants, $techs->first(), $days->filter(fn ($d) => $d->lt($today))->values(), $office);
+        $this->invoices();
 
         // From now on: plain requests, each run through the real auto-scheduler, which picks the
         // tech, day and time (or texts the tenant choices when there's no permission to enter).
@@ -117,12 +153,26 @@ class DemoWorkOrdersSeeder extends Seeder
         }
 
         $this->needsAPerson($idaho, $tenants, $techs, $today);
+
+        // Put each tech's booked days in the shortest driving order from the office (no texts for demo data).
+        $optimizer = app(RouteOptimizer::class);
+        foreach ($techs as $tech) {
+            foreach ($days->filter(fn ($d) => $d->gte($today)) as $day) {
+                $optimizer->optimizeDay($tech, $day, notify: false);
+            }
+        }
     }
 
     /** Wipe every work order and its history, then make a fresh demo set dated around today. */
     public static function reset(): void
     {
         DB::transaction(function () {
+            InvoiceLine::query()->delete();
+            TimeEntry::query()->update(['invoice_id' => null]);
+            WorkOrderPart::query()->update(['invoice_id' => null]);
+            Invoice::query()->delete();
+            TimeEntry::query()->delete();
+            LocationPing::query()->delete();
             Message::query()->delete();
             Activity::query()->delete();
             SlotOffer::query()->delete();
@@ -157,9 +207,11 @@ class DemoWorkOrdersSeeder extends Seeder
     private function properties(Location $idaho): array
     {
         $tenants = [];
-        foreach (self::PROPERTIES as $i => [$name, $street, $city, $lat, $lng, $units]) {
-            $prop = Property::firstOrCreate(['location_id' => $idaho->id, 'rm_property_id' => 9000 + $i], [
+        foreach (self::PROPERTIES as $i => $row) {
+            [$name, $street, $city, $lat, $lng, $units] = $row;
+            $prop = Property::updateOrCreate(['location_id' => $idaho->id, 'rm_property_id' => 9000 + $i], [
                 'name' => $name, 'address' => $street, 'city' => $city, 'state' => 'ID', 'lat' => $lat, 'lng' => $lng,
+                'managed_by_axiom' => $row[6] ?? true, 'bill_to' => $row[7] ?? null,
             ]);
             foreach ($units as $j => $u) {
                 $unit = Unit::firstOrCreate(['property_id' => $prop->id, 'rm_unit_id' => 90000 + $i * 10 + $j], ['name' => $u]);
@@ -213,7 +265,7 @@ class DemoWorkOrdersSeeder extends Seeder
         ];
     }
 
-    private function scheduled(Location $loc, Tenant $tenant, Technician $tech, array $job, CarbonImmutable $start, CarbonImmutable $today): void
+    private function scheduled(Location $loc, Tenant $tenant, Technician $tech, array $job, CarbonImmutable $start, CarbonImmutable $today): WorkOrder
     {
         $end = $start->addMinutes(120);
         $attrs = $this->base($loc, $tenant, $job) + [
@@ -239,6 +291,210 @@ class DemoWorkOrdersSeeder extends Seeder
         $wo = WorkOrder::create($attrs);
         $wo->forceFill(['created_at' => $start->subDays(mt_rand(1, 4))->utc()])->save();
         $wo->log(mt_rand(0, 1) ? 'auto_booked' : 'booked', ['technician_id' => $tech->id, 'demo' => true]);
+
+        // Most finished jobs used a part or two from the truck.
+        if ($wo->completed_at && mt_rand(0, 2)) {
+            $part = Part::where('trade', $job[0])->inRandomOrder()->first();
+            if ($part) {
+                $wo->parts()->create(['part_id' => $part->id, 'part_name' => $part->name, 'quantity' => mt_rand(1, 2), 'used' => true]);
+            }
+        }
+
+        return $wo;
+    }
+
+    /** Home office for the Idaho location: geocoded on the server when possible, else central Pocatello. */
+    private function office(Location $idaho): array
+    {
+        [$address, $lat, $lng] = self::OFFICE;
+        if ($idaho->office_address !== $address || ! $idaho->office()) {
+            $at = app(Geocoder::class)->locate($address) ?? [$lat, $lng];
+            $idaho->update(['office_address' => $address, 'office_lat' => $at[0], 'office_lng' => $at[1]]);
+        }
+
+        return $idaho->office();
+    }
+
+    private function rates(): void
+    {
+        foreach (self::RATES as $slug => [$rate, $fee, $licensed]) {
+            Skill::where('slug', $slug)->where('hourly_rate', 0)->update(['hourly_rate' => $rate, 'service_call_fee' => $fee, 'licensed' => $licensed]);
+        }
+        foreach (self::PART_COSTS as $sku => $cost) {
+            Part::where('sku', $sku)->where('unit_cost', 0)->update(['unit_cost' => $cost]);
+        }
+        // A couple of tech-specific rates so the rate card shows how overrides work.
+        $mike = Technician::whereHas('user', fn ($q) => $q->where('email', 'mike@example.test'))->first();
+        if ($mike && $mike->hourly_rate === null) {
+            $mike->update(['hourly_rate' => 90]);
+        }
+        $dana = Technician::whereHas('user', fn ($q) => $q->where('email', 'dana@example.test'))->first();
+        $electrical = Skill::where('slug', 'electrical')->value('id');
+        if ($dana && $electrical && $dana->skills()->whereKey($electrical)->exists() && $dana->skills()->whereKey($electrical)->first()->pivot->hourly_rate === null) {
+            $dana->skills()->updateExistingPivot($electrical, ['hourly_rate' => 120]);
+        }
+    }
+
+    /**
+     * A believable day on the clocks: clock in at the office, drive to each job, work it, lunch,
+     * drive back, clock out. GPS check-ins every 15 minutes along the way.
+     */
+    private function clockDay(Technician $tech, CarbonImmutable $day, $jobs, array $office, CarbonImmutable $now): void
+    {
+        $jobs = $jobs->filter(fn (WorkOrder $w) => $w->started_at)->sortBy('scheduled_start')->values();
+        if ($jobs->isEmpty()) {
+            return;
+        }
+        $tz = $day->getTimezone();
+        $clockIn = $day->setTime(7, 40 + mt_rand(0, 15));
+        $entries = [['shift', null, $clockIn, null, $office]];
+        $here = $office;
+        $cursor = $clockIn->addMinutes(mt_rand(5, 20));
+        $lunch = false;
+
+        foreach ($jobs as $wo) {
+            $drive = Geo::driveMinutes(Geo::km($here, $wo->coordinates())) + mt_rand(0, 6);
+            $arrive = $wo->started_at->toImmutable()->setTimezone($tz);
+            $leave = $arrive->subMinutes($drive);
+            if ($leave->lt($cursor)) {
+                $leave = $cursor;
+                $arrive = $cursor->addMinutes($drive);
+            }
+            if (! $lunch && $leave->hour >= 12) {
+                $entries[] = ['break', null, $cursor, $cursor->addMinutes(30), $here];
+                $lunch = true;
+                $leave = $leave->max($cursor->addMinutes(30));
+                $arrive = $leave->addMinutes($drive);
+            }
+            if ($arrive->gte($now)) {
+                break;
+            }
+            $entries[] = ['travel', $wo, $leave, $arrive, $here];
+            $done = $wo->completed_at?->toImmutable()->setTimezone($tz);
+            // On-site time: the job itself plus setup, cleanup and talking with the tenant.
+            $finish = $done ? $arrive->addMinutes((int) $wo->estimated_minutes + mt_rand(15, 45)) : null;
+            $entries[] = ['work', $wo, $arrive, $finish && $finish->lt($now) ? $finish : null, $wo->coordinates() ?? $here];
+            $over = $finish && $finish->lt($now);
+            $wo->forceFill(['en_route_at' => $leave->utc(), 'started_at' => $arrive->utc(), 'completed_at' => $over ? $finish->utc() : null]
+                + ($over ? [] : ['status' => WorkOrder::STATUS_IN_PROGRESS, 'closed_at' => null]))->save();
+            $here = $wo->coordinates() ?? $here;
+            if (! $finish || $finish->gte($now)) {
+                $cursor = null;
+                break;
+            }
+            $cursor = $finish->addMinutes(mt_rand(5, 25)); // paperwork, parts run, etc.
+        }
+
+        $clockOut = $cursor ? $cursor->addMinutes(Geo::driveMinutes(Geo::km($here, $office)) + mt_rand(5, 20)) : null;
+        if ($clockOut && $clockOut->gte($now)) {
+            $clockOut = null;
+        }
+        if ($cursor && $clockOut) {
+            $entries[] = ['travel', null, $cursor, $clockOut->subMinutes(mt_rand(3, 8)), $here];
+        }
+        $entries[0][3] = $clockOut;
+
+        foreach ($entries as [$type, $wo, $from, $to, $at]) {
+            TimeEntry::create([
+                'technician_id' => $tech->id, 'work_order_id' => $wo?->id, 'type' => $type,
+                'started_at' => $from->utc(), 'ended_at' => $to?->utc(),
+                'start_lat' => $at[0], 'start_lng' => $at[1], 'end_lat' => $to ? $at[0] : null, 'end_lng' => $to ? $at[1] : null,
+            ]);
+        }
+
+        // GPS every 15 minutes while on the clock, at whichever stop they were at or heading to.
+        $pings = [];
+        $stamp = now();
+        for ($t = $clockIn; $t->lt($clockOut ?? $now); $t = $t->addMinutes(15)) {
+            $spot = $office;
+            foreach ($entries as [$type, $wo, $from, $to, $at]) {
+                if ($type !== 'shift' && $t->gte($from) && (! $to || $t->lt($to))) {
+                    $spot = $type === 'travel' && $wo ? $this->between($at, $wo->coordinates() ?? $at, $from, $to, $t) : $at;
+                }
+            }
+            $pings[] = ['technician_id' => $tech->id, 'lat' => round($spot[0] + mt_rand(-20, 20) / 100000, 7), 'lng' => round($spot[1] + mt_rand(-20, 20) / 100000, 7),
+                'accuracy_m' => mt_rand(5, 30), 'reason' => $t->eq($clockIn) ? 'clock_in' : 'interval', 'recorded_at' => $t->utc(), 'created_at' => $stamp, 'updated_at' => $stamp];
+        }
+        foreach (array_chunk($pings, 200) as $chunk) {
+            LocationPing::insert($chunk);
+        }
+    }
+
+    private function between(array $a, array $b, CarbonImmutable $from, ?CarbonImmutable $to, CarbonImmutable $t): array
+    {
+        $span = $to ? max(1, $from->diffInSeconds($to)) : 1;
+        $f = min(1, max(0, $from->diffInSeconds($t) / $span));
+
+        return [$a[0] + ($b[0] - $a[0]) * $f, $a[1] + ($b[1] - $a[1]) * $f];
+    }
+
+    /**
+     * A job that took two visits: the first visit was invoiced on its own (fee, labor, parts),
+     * the second visit is done but not billed yet, so "Create invoice" bills only the second visit.
+     */
+    private function twoVisitJob(Location $loc, array $tenants, Technician $tech, $pastDays, array $office): void
+    {
+        if ($pastDays->count() < 4) {
+            return;
+        }
+        $tz = $loc->timezone;
+        $first = $pastDays[0]->setTime(9, 0);
+        $second = $pastDays[$pastDays->count() - 2]->setTime(14, 0);
+        $wo = WorkOrder::create($this->base($loc, $tenants[1], ['plumbing', 'urgent', 180, 'Water heater leaking from the tank. Needs replacing.']) + [
+            'technician_id' => $tech->id, 'scheduled_start' => $second->utc(), 'scheduled_end' => $second->addHours(2)->utc(),
+            'status' => WorkOrder::STATUS_COMPLETED, 'en_route_at' => $first->subMinutes(15)->utc(), 'started_at' => $first->utc(),
+            'completed_at' => $second->addMinutes(150)->utc(), 'labor_minutes' => 240,
+            'completion_notes' => $first->format('M j').": Drained tank, shut off gas, ordered a 40 gal water heater.\n"
+                .$second->format('M j').': Installed new water heater, new supply lines, tested. Hauled old tank away.',
+        ]);
+        $wo->forceFill(['created_at' => $first->subDay()->utc()])->save();
+        $wo->log('booked', ['demo' => true]);
+
+        $visit = function (CarbonImmutable $at, int $drive, int $work) use ($tech, $wo, $office) {
+            TimeEntry::create(['technician_id' => $tech->id, 'work_order_id' => $wo->id, 'type' => 'travel', 'started_at' => $at->subMinutes($drive)->utc(),
+                'ended_at' => $at->utc(), 'start_lat' => $office[0], 'start_lng' => $office[1]]);
+            TimeEntry::create(['technician_id' => $tech->id, 'work_order_id' => $wo->id, 'type' => 'work', 'started_at' => $at->utc(),
+                'ended_at' => $at->addMinutes($work)->utc(), 'start_lat' => $wo->coordinates()[0] ?? null, 'start_lng' => $wo->coordinates()[1] ?? null]);
+        };
+
+        $visit($first, 14, 75);
+        if ($p = Part::where('sku', 'PLB-SUPPLY')->first()) {
+            $wo->parts()->create(['part_id' => $p->id, 'part_name' => $p->name, 'quantity' => 1, 'used' => true]);
+        }
+        $invoice = app(Invoicer::class)->create($wo, null, 'Visit 1 of 2: diagnosis, drain and shut-off. Water heater ordered.');
+        $invoice->update(['status' => 'sent', 'sent_at' => $first->addDay()->utc(), 'created_at' => $first->addHours(3)->utc()]);
+        $wo->log('return_visit_needed', ['notes' => 'Waiting on water heater']);
+
+        $visit($second, 16, 150);
+        $heater = Part::firstOrCreate(['sku' => 'PLB-WH40'], ['name' => '40 gal gas water heater', 'trade' => 'plumbing', 'keywords' => ['water heater'], 'unit_cost' => 649]);
+        $wo->parts()->create(['part_id' => $heater->id, 'part_name' => $heater->name, 'quantity' => 1, 'used' => true]);
+        if ($p = Part::where('sku', 'PLB-SUPPLY')->first()) {
+            $wo->parts()->create(['part_id' => $p->id, 'part_name' => $p->name, 'quantity' => 2, 'used' => true]);
+        }
+    }
+
+    /** Bill most closed jobs (paid or sent); leave the recently completed ones for the office to invoice. */
+    private function invoices(): void
+    {
+        $invoicer = app(Invoicer::class);
+        WorkOrder::with('property', 'location')->where('status', WorkOrder::STATUS_CLOSED)->whereNotNull('completed_at')
+            ->orderBy('completed_at')->get()
+            ->each(function (WorkOrder $wo, $i) use ($invoicer) {
+                if ($i % 5 === 4) {
+                    return; // a few closed jobs still waiting on an invoice
+                }
+                try {
+                    $inv = $invoicer->create($wo, null);
+                } catch (\RuntimeException) {
+                    return;
+                }
+                $done = $wo->completed_at->toImmutable();
+                $paid = $done->lt(now()->subDays(3)) && mt_rand(0, 3) > 0;
+                $inv->forceFill([
+                    'status' => $paid ? 'paid' : 'sent', 'created_at' => $done->addHours(3), 'sent_at' => $done->addHours(4),
+                    'paid_at' => $paid ? $done->addDays(mt_rand(1, 3)) : null,
+                ])->save();
+            });
     }
 
     private function needsAPerson(Location $loc, array $tenants, $techs, CarbonImmutable $today): void

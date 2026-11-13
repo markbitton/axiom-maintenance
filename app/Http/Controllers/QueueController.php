@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\PushToRentManager;
 use App\Models\Technician;
 use App\Models\WorkOrder;
+use App\Services\Billing\Invoicer;
 use App\Services\Photos\R2Storage;
 use App\Services\Scheduling\AutoScheduler;
 use App\Services\Scheduling\SlotFinder;
@@ -31,14 +32,16 @@ class QueueController extends Controller
         ]);
     }
 
-    public function show(WorkOrder $workOrder, SlotFinder $finder, R2Storage $r2)
+    public function show(WorkOrder $workOrder, SlotFinder $finder, R2Storage $r2, Invoicer $invoicer)
     {
-        $workOrder->load('tenant', 'property', 'unit', 'technician.user', 'location', 'messages.user', 'parts', 'offers.technician.user', 'activity', 'photos');
+        $workOrder->load('tenant', 'property', 'unit', 'technician.user', 'location', 'messages.user', 'parts.part', 'offers.technician.user', 'activity', 'photos',
+            'timeEntries.technician.user', 'timeEntries.invoice', 'invoices');
 
         return view('queue.show', [
             'wo' => $workOrder,
             'suggestions' => in_array($workOrder->status, WorkOrder::OPEN_STATUSES, true) ? $finder->find($workOrder, 5) : [],
             'techs' => Technician::with('user')->where('location_id', $workOrder->location_id)->where('active', true)->get(),
+            'unbilled' => $invoicer->preview($workOrder),
             'photoUrls' => $r2->isConfigured() ? $workOrder->photos->whereNull('purged_at')->mapWithKeys(fn ($p) => [$p->id => $r2->viewUrl($p->object_key, 900)]) : collect(),
         ]);
     }

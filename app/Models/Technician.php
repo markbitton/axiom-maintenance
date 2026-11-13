@@ -17,7 +17,7 @@ class Technician extends Model
 
     protected $fillable = [
         'user_id', 'location_id', 'start_address', 'start_lat', 'start_lng', 'work_start', 'work_end',
-        'work_days', 'max_jobs_per_day', 'on_call', 'active',
+        'work_days', 'max_jobs_per_day', 'hourly_rate', 'on_call', 'active',
     ];
 
     protected function casts(): array
@@ -37,7 +37,17 @@ class Technician extends Model
 
     public function skills(): BelongsToMany
     {
-        return $this->belongsToMany(Skill::class)->withPivot('level');
+        return $this->belongsToMany(Skill::class)->withPivot('level', 'hourly_rate');
+    }
+
+    public function timeEntries(): HasMany
+    {
+        return $this->hasMany(TimeEntry::class);
+    }
+
+    public function pings(): HasMany
+    {
+        return $this->hasMany(LocationPing::class);
     }
 
     public function workOrders(): HasMany

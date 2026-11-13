@@ -2,6 +2,7 @@
 @section('title', 'My day')
 @section('content')
 @php($tz = $tech->location->timezone)
+@include('tech._clock')
 <div class="row" style="align-items:center;margin-bottom:10px">
     <h2 style="margin:0">{{ $day->isToday() ? 'Today' : $day->format('l M j') }}</h2>
     <div style="flex:0;white-space:nowrap">
@@ -27,3 +28,7 @@
     <div class="card">No jobs scheduled.</div>
 @endforelse
 @endsection
+
+@push('scripts')
+@include('tech._gps')
+@endpush

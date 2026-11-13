@@ -30,7 +30,7 @@ class RoutePlanner
         $rest = $jobs->reject->isEmergency()->groupBy(fn ($j) => $j->scheduled_start->format('H'))->sortKeys();
 
         $ordered = collect($emergencies->values());
-        $here = ($tech->start_lat !== null) ? [$tech->start_lat, $tech->start_lng] : null;
+        $here = $tech->location?->office() ?? (($tech->start_lat !== null) ? [$tech->start_lat, $tech->start_lng] : null);
         foreach ($rest as $group) {
             $remaining = $group->values();
             while ($remaining->isNotEmpty()) {
@@ -70,5 +70,12 @@ class RoutePlanner
         $dest = $coords ? implode(',', $coords) : $wo->displayAddress();
 
         return 'https://www.google.com/maps/dir/?api=1&destination='.urlencode($dest);
+    }
+
+    public static function appleMapsLink(WorkOrder $wo): string
+    {
+        $coords = $wo->coordinates();
+
+        return 'https://maps.apple.com/?dirflg=d&daddr='.urlencode($coords ? implode(',', $coords) : $wo->displayAddress());
     }
 }

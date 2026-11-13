@@ -7,11 +7,17 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Location extends Model
 {
-    protected $fillable = ['rm_location_id', 'name', 'timezone', 'enabled', 'last_issue_sync_at'];
+    protected $fillable = ['rm_location_id', 'name', 'timezone', 'office_address', 'office_lat', 'office_lng', 'enabled', 'last_issue_sync_at'];
 
     protected function casts(): array
     {
-        return ['enabled' => 'boolean', 'last_issue_sync_at' => 'datetime'];
+        return ['enabled' => 'boolean', 'last_issue_sync_at' => 'datetime', 'office_lat' => 'float', 'office_lng' => 'float'];
+    }
+
+    /** Home office coordinates, where techs start and end the day. */
+    public function office(): ?array
+    {
+        return $this->office_lat !== null && $this->office_lng !== null ? [(float) $this->office_lat, (float) $this->office_lng] : null;
     }
 
     public function scopeEnabled($query)

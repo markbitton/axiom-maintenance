@@ -8,11 +8,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Property extends Model
 {
-    protected $fillable = ['location_id', 'rm_property_id', 'name', 'address', 'city', 'state', 'zip', 'lat', 'lng'];
+    protected $fillable = ['location_id', 'rm_property_id', 'name', 'address', 'city', 'state', 'zip', 'lat', 'lng', 'managed_by_axiom', 'bill_to'];
 
     protected function casts(): array
     {
-        return ['lat' => 'float', 'lng' => 'float'];
+        return ['lat' => 'float', 'lng' => 'float', 'managed_by_axiom' => 'boolean'];
     }
 
     public function location(): BelongsTo

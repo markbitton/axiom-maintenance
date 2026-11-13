@@ -35,6 +35,7 @@
         .thread { max-height:320px; overflow:auto; }
         .msg { padding:6px 10px; border-radius:10px; margin:6px 0; max-width:85%; }
         .msg.inbound { background:#f3f4f6; } .msg.outbound { background:#dbeafe; margin-left:auto; }
+        @media print { header, .no-print { display:none !important; } body { background:#fff; } .card { border:0; } }
         .big-btn { display:block; width:100%; padding:14px; font-size:17px; margin:8px 0; text-align:center; }
         @media (max-width:640px) { main { padding:10px; } .hide-sm { display:none; } }
     </style>
@@ -46,12 +47,15 @@
     @if(auth()->user()->isAdmin())
         <a href="{{ route('admin.dashboard') }}">Dashboard</a>
         <a href="{{ route('admin.technicians') }}">People</a>
+        <a href="{{ route('admin.rates') }}">Rates</a>
+        <a href="{{ route('admin.efficiency') }}">Efficiency</a>
     @endif
     @if(auth()->user()->hasRole('admin', 'scheduler'))
         <a href="{{ route('work-orders.create') }}">+ New work order</a>
         <a href="{{ route('schedule') }}">Schedule</a>
         <a href="{{ route('map') }}">Map</a>
         <a href="{{ route('queue') }}">Queue</a>
+        <a href="{{ route('invoices') }}">Invoices</a>
     @endif
     @if(auth()->user()->technician)
         <a href="{{ route('tech.today') }}">My day</a>

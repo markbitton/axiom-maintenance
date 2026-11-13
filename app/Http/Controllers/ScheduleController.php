@@ -7,6 +7,7 @@ use App\Models\Technician;
 use App\Models\WorkOrder;
 use App\Services\Scheduling\AutoScheduler;
 use App\Services\Scheduling\Geo;
+use App\Services\Scheduling\RouteOptimizer;
 use App\Services\Scheduling\RoutePlanner;
 use App\Services\Scheduling\Slot;
 use App\Services\Scheduling\SlotFinder;
@@ -78,6 +79,24 @@ class ScheduleController extends Controller
         return response()->json(['ok' => true, 'message' => ($moved ? 'Moved ' : 'Booked ').$wo->reference.' and texted the tenant.']);
     }
 
+    /** "Optimize routes": reorder every tech's day for the least driving and re-time the windows (texts tenants whose time moved). */
+    public function optimize(Request $request, RouteOptimizer $optimizer)
+    {
+        $loc = $this->location($request);
+        $date = $this->date($request, $loc->timezone);
+        $moved = 0;
+        $saved = 0;
+        foreach ($this->techs($loc) as $tech) {
+            $r = $optimizer->optimizeDay($tech, $date, notify: true);
+            $moved += $r['moved'];
+            $saved += max(0, $r['before'] - $r['after']);
+        }
+
+        return redirect()->route('schedule', ['date' => $date->toDateString()])->with('status', $moved
+            ? "Routes optimized: {$moved} ".Str::plural('visit', $moved)." re-timed, about {$saved} fewer minutes of driving. Tenants whose time changed were texted."
+            : 'Routes are already in the shortest order.');
+    }
+
     public function map(Request $request, RoutePlanner $planner)
     {
         $loc = $this->location($request);
@@ -86,14 +105,18 @@ class ScheduleController extends Controller
         $techs = $this->techs($loc);
         $colors = $this->colors($techs);
 
-        $routes = $techs->map(function (Technician $tech) use ($planner, $date, $colors) {
+        $office = $loc->office();
+        $routes = $techs->map(function (Technician $tech) use ($planner, $date, $colors, $office) {
             $stops = $planner->planDay($tech, $date);
-            $start = $tech->start_lat !== null ? [(float) $tech->start_lat, (float) $tech->start_lng] : null;
+            $start = $office ?? ($tech->start_lat !== null ? [(float) $tech->start_lat, (float) $tech->start_lng] : null);
             $km = 0.0;
             $here = $start;
             foreach ($stops as $s) {
                 $km += Geo::km($here, $s->coordinates()) ?? 0;
                 $here = $s->coordinates() ?? $here;
+            }
+            if ($office && $stops->isNotEmpty()) {
+                $km += Geo::km($here, $office) ?? 0;
             }
 
             return [
@@ -120,7 +143,9 @@ class ScheduleController extends Controller
 
         $locations = Location::orderBy('rm_location_id')->get();
 
-        return view('schedule.map', compact('date', 'tz', 'routes', 'points', 'waiting', 'loc', 'locations'));
+        $office = $office ? ['lat' => $office[0], 'lng' => $office[1], 'address' => $loc->office_address] : null;
+
+        return view('schedule.map', compact('date', 'tz', 'routes', 'points', 'waiting', 'loc', 'locations', 'office'));
     }
 
     /** The location being viewed: picked in the page, else the last one picked, else one that has techs. */
@@ -189,7 +214,7 @@ class ScheduleController extends Controller
     private function date(Request $request, string $tz): CarbonImmutable
     {
         try {
-            return CarbonImmutable::parse((string) $request->query('date', ''), $tz)->startOfDay();
+            return CarbonImmutable::parse((string) $request->input('date', ''), $tz)->startOfDay();
         } catch (\Throwable) {
             return CarbonImmutable::now($tz)->startOfDay();
         }

@@ -20,7 +20,9 @@ class TechWorkflowTest extends MaintenanceTestCase
             'technician_id' => $tech->id, 'scheduled_start' => now(), 'scheduled_end' => now()->addHours(2)]);
         $line = $wo->parts()->create(['part_id' => $wax->id, 'part_name' => $wax->name, 'quantity' => 1, 'suggested' => true]);
 
-        $this->actingAs($tech->user)->post("/tech/jobs/{$wo->id}/on-my-way")->assertRedirect();
+        $this->actingAs($tech->user)->post("/tech/jobs/{$wo->id}/on-my-way")->assertSessionHasErrors('lat');
+        $this->assertSame(WorkOrder::STATUS_SCHEDULED, $wo->fresh()->status, 'no GPS, no clock');
+        $this->actingAs($tech->user)->post("/tech/jobs/{$wo->id}/on-my-way", ['lat' => 43.6, 'lng' => -116.2])->assertRedirect();
         $this->assertSame(WorkOrder::STATUS_EN_ROUTE, $wo->fresh()->status);
         $this->assertMatchesRegularExpression('/Mike is on the way, about \d+ minutes/', end($this->sms->sent)['body']);
         $this->assertStringNotContainsString((string) $tech->user->phone, end($this->sms->sent)['body']);

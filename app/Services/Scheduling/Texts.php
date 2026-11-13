@@ -45,6 +45,14 @@ class Texts
             .'Reply here if you need to change it.';
     }
 
+    public static function moved(WorkOrder $wo, string $tz): string
+    {
+        $when = self::window($wo->scheduled_start, $wo->scheduled_end, $tz);
+
+        return "Axiom Maintenance: we planned the route for {$wo->reference}, so your arrival window is now {$when}. "
+            .'Reply here if that time does not work.';
+    }
+
     public static function reminder(WorkOrder $wo, string $tz): string
     {
         return 'Axiom Maintenance reminder: your visit is tomorrow, '.self::window($wo->scheduled_start, $wo->scheduled_end, $tz)

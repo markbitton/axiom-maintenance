@@ -9,12 +9,22 @@
     <span class="pill">{{ $wo->trade }}</span>
     <p style="white-space:pre-line">{{ $wo->description }}</p>
     <p class="muted">Tenant: {{ $wo->tenant?->name ?? $wo->contact_name }} · Enter if not home: <b>{{ $wo->permission_to_enter ? 'yes' : 'no' }}</b>{{ $wo->pets ? ' · Pets: '.$wo->pets : '' }}</p>
-    <a class="btn secondary big-btn" href="{{ $mapsLink }}" target="_blank" rel="noopener">Navigate</a>
-    @if($wo->status === 'scheduled')
-        <form method="post" action="{{ route('tech.onmyway', $wo) }}">@csrf<button class="big-btn">On my way (texts the tenant)</button></form>
+    <div class="row">
+        <a class="btn big-btn" href="{{ $mapsLink }}" target="_blank" rel="noopener">Navigate (Google Maps)</a>
+        <a class="btn secondary big-btn" href="{{ $appleLink }}" target="_blank" rel="noopener">Apple Maps</a>
+    </div>
+    @php($running = $activity && $activity->work_order_id === $wo->id ? $activity->type : null)
+    @if($running)
+        <p class="flash" style="margin:8px 0">{{ $running === 'travel' ? 'Travel clock' : ($running === 'work' ? 'Job clock' : 'Break') }} running for this job since {{ $activity->started_at->setTimezone($tz)->format('g:i A') }}.</p>
     @endif
-    @if(in_array($wo->status, ['scheduled','en_route']))
-        <form method="post" action="{{ route('tech.start', $wo) }}">@csrf<button class="big-btn secondary">Start work</button></form>
+    @if(in_array($wo->status, ['scheduled']) && $running !== 'travel')
+        <form method="post" action="{{ route('tech.onmyway', $wo) }}" data-gps>@csrf<button class="big-btn secondary">On my way (starts travel clock, texts the tenant)</button></form>
+    @endif
+    @if(in_array($wo->status, ['scheduled','en_route','in_progress']) && $running !== 'work')
+        <form method="post" action="{{ route('tech.start', $wo) }}" data-gps>@csrf<button class="big-btn">{{ $wo->status === 'in_progress' ? 'Restart job clock' : 'Arrived, start job clock' }}</button></form>
+    @endif
+    @if(($jobMinutes ?? collect())->isNotEmpty())
+        <p class="muted">On this job so far: {{ (int) ($jobMinutes['work'] ?? 0) }} min working, {{ (int) ($jobMinutes['travel'] ?? 0) }} min driving.</p>
     @endif
 </div>
 
@@ -49,7 +59,7 @@
 </div>
 
 @if(in_array($wo->status, ['scheduled','en_route','in_progress']))
-<form class="card" method="post" action="{{ route('tech.complete', $wo) }}">
+<form class="card" method="post" action="{{ route('tech.complete', $wo) }}" data-gps="optional">
     @csrf
     <h3 style="margin-top:0">Finish job</h3>
     <label>What did you do?</label>
@@ -62,10 +72,18 @@
         <div><select name="extra_part_id"><option value="">Other part…</option>@foreach($catalog as $c)<option value="{{ $c->id }}">{{ $c->name }}</option>@endforeach</select></div>
         <div style="flex:0;min-width:90px"><input type="number" min="1" max="99" name="extra_qty" value="1"></div>
     </div>
-    <label>Labor minutes (blank = time since you tapped Start)</label>
+    <label>Labor minutes (blank = your job clock)</label>
     <input type="number" name="labor_minutes" min="0">
-    <label style="font-weight:400"><input type="hidden" name="needs_return" value="0"><input type="checkbox" name="needs_return" value="1" style="width:auto"> Needs a return visit</label>
-    <button class="big-btn">Complete job</button>
+    <button class="big-btn">Complete job (stops the job clock)</button>
+</form>
+
+<form class="card" method="post" action="{{ route('tech.pause', $wo) }}" data-gps="optional">
+    @csrf
+    <h3 style="margin-top:0">Need to come back?</h3>
+    <p class="muted">Stops the job clock and sends the job back to the office to book another visit. Time and parts so far can be billed now; the next visit bills only what's new.</p>
+    <label>What's done and what's left?</label>
+    <textarea name="notes" rows="2" required></textarea>
+    <button class="big-btn secondary">Leave for now, needs another visit</button>
 </form>
 @endif
 
@@ -77,6 +95,7 @@
 @endsection
 
 @push('scripts')
+@include('tech._gps')
 <script>
 document.querySelectorAll('input[type=file][data-kind]').forEach(function (input) {
     input.addEventListener('change', async function () {

@@ -2,8 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Invoice;
 use App\Models\Location;
+use App\Models\LocationPing;
 use App\Models\Technician;
+use App\Models\TimeEntry;
 use App\Models\User;
 use App\Models\WorkOrder;
 use Database\Seeders\DatabaseSeeder;
@@ -56,7 +59,10 @@ class DeployController extends Controller
             'app_now_utc' => now()->utc()->toDateTimeString(),
             'users' => User::selectRaw('role, location_id, count(*) as n')->groupBy('role', 'location_id')->get(),
             'techs' => Technician::selectRaw('location_id, active, count(*) as n')->groupBy('location_id', 'active')->get(),
-            'locations' => Location::get(['id', 'rm_location_id', 'timezone', 'enabled']),
+            'locations' => Location::get(['id', 'rm_location_id', 'timezone', 'enabled', 'office_lat', 'office_lng']),
+            'time_entries' => TimeEntry::selectRaw('type, count(*) as n')->groupBy('type')->pluck('n', 'type'),
+            'invoices' => Invoice::selectRaw('status, count(*) as n')->groupBy('status')->pluck('n', 'status'),
+            'pings' => LocationPing::count(),
             'jobs_by_status' => WorkOrder::selectRaw('status, count(*) as n')->groupBy('status')->pluck('n', 'status'),
             'booked_next_7_days' => WorkOrder::whereNotNull('technician_id')->whereBetween('scheduled_start', [now()->startOfDay(), now()->addDays(7)])->count(),
             'first_booked' => (string) WorkOrder::whereNotNull('scheduled_start')->min('scheduled_start'),

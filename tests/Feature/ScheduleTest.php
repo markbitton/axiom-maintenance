@@ -3,10 +3,14 @@
 namespace Tests\Feature;
 
 use App\Models\Activity;
+use App\Models\Invoice;
 use App\Models\Location;
+use App\Models\LocationPing;
 use App\Models\Technician;
+use App\Models\TimeEntry;
 use App\Models\User;
 use App\Models\WorkOrder;
+use App\Services\Billing\Invoicer;
 use Database\Seeders\DemoSeeder;
 use Database\Seeders\DemoWorkOrdersSeeder;
 
@@ -30,6 +34,22 @@ class ScheduleTest extends MaintenanceTestCase
         }
         $this->assertGreaterThanOrEqual(5, WorkOrder::needsReview()->count());
         $this->assertGreaterThan(20, Activity::where('event', 'auto_booked')->count());
+
+        // Clocks, GPS, invoices and a job billed in two parts.
+        $this->assertNotNull(Location::where('rm_location_id', 1)->first()->office());
+        foreach (['shift', 'travel', 'work', 'break'] as $type) {
+            $this->assertTrue(TimeEntry::where('type', $type)->exists(), "no {$type} time");
+        }
+        $this->assertGreaterThan(100, LocationPing::count());
+        $this->assertTrue(Invoice::where('status', 'paid')->exists());
+        $twoVisits = WorkOrder::whereHas('invoices')->whereHas('timeEntries', fn ($q) => $q->where('type', 'work')->whereNull('invoice_id'))->first();
+        $this->assertNotNull($twoVisits, 'a job with one visit billed and one not');
+        $this->assertNotEmpty(app(Invoicer::class)->preview($twoVisits));
+
+        $admin = User::where('email', 'admin@example.test')->firstOrFail();
+        $this->actingAs($admin)->get('/admin/efficiency')->assertOk()->assertSee('Mike Plumber');
+        $this->actingAs($admin)->get("/work-orders/{$twoVisits->id}")->assertOk()->assertSee('Create invoice for unbilled work');
+        $this->actingAs($admin)->get('/map')->assertOk()->assertSee('477 Taft Ave');
     }
 
     public function test_calendar_and_map_pages_render(): void

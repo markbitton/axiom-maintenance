@@ -2,17 +2,23 @@
 
 namespace Database\Seeders;
 
+use App\Models\Activity;
 use App\Models\Location;
 use App\Models\Message;
 use App\Models\Property;
+use App\Models\Skill;
 use App\Models\SlotOffer;
+use App\Models\StockLocation;
 use App\Models\Technician;
 use App\Models\Tenant;
 use App\Models\Unit;
+use App\Models\User;
 use App\Models\WorkOrder;
+use App\Services\Scheduling\AutoScheduler;
 use App\Services\Scheduling\Geo;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 /**
  * About two weeks of made-up work orders around today (last week done, this week booked, a few
@@ -66,11 +72,15 @@ class DemoWorkOrdersSeeder extends Seeder
 
     private const WINDOWS = [8, 10, 13, 15];
 
+    /** Bump when the demo set changes; beta's deploy then rebuilds it. */
+    public const VERSION = 3;
+
     public function run(): void
     {
         mt_srand(20261112);
         $idaho = Location::where('rm_location_id', 1)->firstOrFail();
         $tz = $idaho->timezone;
+        $this->moreTechs($idaho);
         $techs = Technician::with('skills', 'user')->where('location_id', $idaho->id)->where('active', true)->get();
         if ($techs->isEmpty()) {
             return;
@@ -80,19 +90,67 @@ class DemoWorkOrdersSeeder extends Seeder
         $today = CarbonImmutable::now($tz)->startOfDay();
         $days = collect(range(-7, 9))->map(fn ($d) => $today->addDays($d))->filter(fn ($d) => $d->isWeekday())->values();
 
-        foreach ($days as $day) {
+        // History: last week and earlier today, already worked, placed directly.
+        $now = CarbonImmutable::now($tz);
+        foreach ($days->filter(fn ($d) => $d->lte($today)) as $day) {
             foreach ($techs as $tech) {
                 $windows = collect(self::WINDOWS)->shuffle()->take(mt_rand(2, 4))->sort()->values();
                 foreach ($windows as $hour) {
-                    $job = $this->jobFor($tech);
                     $start = $day->setTime($hour, [0, 0, 30][mt_rand(0, 2)]);
-                    $this->scheduled($idaho, $this->nearbyTenant($tenants, $tech), $tech, $job, $start, $today);
+                    if ($start->gte($now)) {
+                        continue;
+                    }
+                    $this->scheduled($idaho, $this->nearbyTenant($tenants, $tech), $tech, $this->jobFor($tech), $start, $today);
                 }
             }
         }
 
+        // From now on: plain requests, each run through the real auto-scheduler, which picks the
+        // tech, day and time (or texts the tenant choices when there's no permission to enter).
+        $scheduler = app(AutoScheduler::class);
+        foreach (range(1, 12 * $techs->count()) as $n) {
+            $job = self::JOBS[mt_rand(0, count(self::JOBS) - 1)];
+            $tenant = $tenants[mt_rand(0, count($tenants) - 1)];
+            $wo = WorkOrder::create(['status' => WorkOrder::STATUS_TRIAGED, 'permission_to_enter' => mt_rand(0, 9) > 0] + $this->base($idaho, $tenant, $job));
+            $wo->forceFill(['created_at' => now()->subMinutes(mt_rand(5, 600))])->save();
+            $scheduler->schedule($wo);
+        }
+
         $this->needsAPerson($idaho, $tenants, $techs, $today);
-        $this->waitingOnTenant($idaho, $tenants, $techs, $today);
+    }
+
+    /** Wipe every work order and its history, then make a fresh demo set dated around today. */
+    public static function reset(): void
+    {
+        DB::transaction(function () {
+            Message::query()->delete();
+            Activity::query()->delete();
+            SlotOffer::query()->delete();
+            WorkOrder::query()->delete();
+            (new self)->run();
+        });
+    }
+
+    /** True when the database holds the current version of the demo set. */
+    public static function isCurrent(): bool
+    {
+        return WorkOrder::where('triage->demo', self::VERSION)->exists();
+    }
+
+    /** Two more techs with overlapping skills, so a week of demand fits like it would for a real crew. */
+    private function moreTechs(Location $idaho): void
+    {
+        $skills = Skill::pluck('id', 'slug');
+        foreach ([
+            ['Chris Handy', 'chris@example.test', ['general' => 3, 'plumbing' => 2, 'appliance' => 2, 'locks' => 2], 43.6066, -116.3920],
+            ['Pat Volt', 'pat@example.test', ['electrical' => 2, 'hvac' => 3, 'appliance' => 1], 43.6950, -116.3540],
+        ] as [$name, $email, $levels, $lat, $lng]) {
+            $user = User::firstOrCreate(['email' => $email], ['name' => $name, 'password' => env('DEMO_PASSWORD', 'demo-password'),
+                'role' => 'tech', 'location_id' => $idaho->id]);
+            $tech = Technician::firstOrCreate(['user_id' => $user->id], ['location_id' => $idaho->id, 'start_lat' => $lat, 'start_lng' => $lng]);
+            $tech->skills()->sync(collect($levels)->mapWithKeys(fn ($l, $s) => [$skills[$s] => ['level' => $l]])->all());
+            StockLocation::firstOrCreate(['technician_id' => $tech->id, 'type' => 'truck'], ['location_id' => $idaho->id, 'name' => "{$name}'s truck"]);
+        }
     }
 
     /** @return list<Tenant> */
@@ -151,7 +209,7 @@ class DemoWorkOrdersSeeder extends Seeder
             'source' => mt_rand(0, 3) ? 'website' : 'rent_manager', 'category' => $trade, 'trade' => $trade, 'urgency' => $urgency,
             'description' => $desc, 'estimated_minutes' => $minutes, 'permission_to_enter' => (bool) mt_rand(0, 1),
             'contact_name' => $tenant->name, 'contact_phone' => $tenant->phone, 'triage_confidence' => mt_rand(78, 97) / 100,
-            'triage' => ['trade' => $trade, 'urgency' => $urgency, 'estimated_minutes' => $minutes, 'demo' => true],
+            'triage' => ['trade' => $trade, 'urgency' => $urgency, 'estimated_minutes' => $minutes, 'demo' => self::VERSION],
         ];
     }
 
@@ -200,22 +258,6 @@ class DemoWorkOrdersSeeder extends Seeder
                 Message::create(['work_order_id' => $wo->id, 'tenant_id' => $wo->tenant_id, 'direction' => 'inbound', 'channel' => 'sms',
                     'from_number' => $wo->contact_phone, 'body' => 'Can someone come Saturday? I work weekdays.']);
             }
-        }
-    }
-
-    private function waitingOnTenant(Location $loc, array $tenants, $techs, CarbonImmutable $today): void
-    {
-        foreach ([['appliance', 'routine', 60, 'Washer will not drain, clothes still soaking wet.'], ['locks', 'routine', 30, 'Mailbox key broke off in the lock.']] as $i => $job) {
-            $tech = $techs[$i % $techs->count()];
-            $wo = WorkOrder::create($this->base($loc, $tenants[($i * 7 + 2) % count($tenants)], $job) + ['status' => WorkOrder::STATUS_OFFERED]);
-            foreach ([1, 2, 3] as $n) {
-                $start = $today->addWeekdays($n)->setTime(self::WINDOWS[$n], 0);
-                SlotOffer::create(['work_order_id' => $wo->id, 'technician_id' => $tech->id, 'option_number' => $n,
-                    'starts_at' => $start->utc(), 'ends_at' => $start->addMinutes(120)->utc(), 'score' => 10 - $n,
-                    'sent_at' => now()->subHours(3), 'expires_at' => now()->addHours(21)]);
-            }
-            Message::create(['work_order_id' => $wo->id, 'tenant_id' => $wo->tenant_id, 'direction' => 'outbound', 'channel' => 'sms',
-                'to_number' => $wo->contact_phone, 'body' => 'Axiom Maintenance: we can fix this. Reply 1, 2 or 3 to pick a time.', 'status' => 'logged']);
         }
     }
 }

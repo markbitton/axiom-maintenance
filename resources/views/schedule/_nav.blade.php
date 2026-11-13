@@ -11,6 +11,13 @@
     <h2>{{ $title }}</h2>
     <form method="get" action="{{ route($page) }}" class="seg">
         <input type="hidden" name="view" value="{{ $view ?? 'day' }}">
+        @if(isset($locations) && $locations->count() > 1)
+            <select name="location" onchange="this.form.submit()" style="width:auto;padding:6px 8px" aria-label="Location">
+                @foreach($locations as $l)
+                    <option value="{{ $l->id }}" @selected($l->id === $loc->id)>{{ $l->name }}{{ $l->enabled ? '' : ' (off)' }}</option>
+                @endforeach
+            </select>
+        @endif
         <input type="date" name="date" value="{{ $date->toDateString() }}" onchange="this.form.submit()">
     </form>
     <div class="seg">

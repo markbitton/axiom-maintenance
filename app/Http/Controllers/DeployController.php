@@ -45,8 +45,8 @@ class DeployController extends Controller
         Artisan::call('db:seed', ['--class' => $seeder, '--force' => true]);
         $out['seed'] = class_basename($seeder);
 
-        if (config('axiom.demo_data') && WorkOrder::count() === 0) {
-            Artisan::call('db:seed', ['--class' => DemoWorkOrdersSeeder::class, '--force' => true]);
+        if (config('axiom.demo_data') && ! DemoWorkOrdersSeeder::isCurrent()) {
+            DemoWorkOrdersSeeder::reset();
             $out['demo_work_orders'] = WorkOrder::count();
         }
 

@@ -12,5 +12,7 @@ final class Slot
         public readonly CarbonImmutable $start,
         public readonly CarbonImmutable $end,
         public readonly float $score,
+        /** What drove the score, for showing a person why this time was picked. */
+        public readonly array $why = [],
     ) {}
 }

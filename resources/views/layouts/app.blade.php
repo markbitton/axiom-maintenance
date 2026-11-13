@@ -48,6 +48,7 @@
         <a href="{{ route('admin.technicians') }}">People</a>
     @endif
     @if(auth()->user()->hasRole('admin', 'scheduler'))
+        <a href="{{ route('work-orders.create') }}">+ New work order</a>
         <a href="{{ route('schedule') }}">Schedule</a>
         <a href="{{ route('map') }}">Map</a>
         <a href="{{ route('queue') }}">Queue</a>

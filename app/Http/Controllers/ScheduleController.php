@@ -8,9 +8,12 @@ use App\Models\WorkOrder;
 use App\Services\Scheduling\AutoScheduler;
 use App\Services\Scheduling\Geo;
 use App\Services\Scheduling\RoutePlanner;
+use App\Services\Scheduling\Slot;
+use App\Services\Scheduling\SlotFinder;
 use Carbon\CarbonImmutable;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 
 /** Calendar (day and week, one column per tech) and the route map. */
 class ScheduleController extends Controller
@@ -46,6 +49,8 @@ class ScheduleController extends Controller
                 ->whereIn('status', [WorkOrder::STATUS_NEW, WorkOrder::STATUS_TRIAGED, WorkOrder::STATUS_OFFERED])
                 ->orderByRaw("case urgency when 'emergency' then 0 when 'urgent' then 1 else 2 end")->oldest()->get(),
             'dayStart' => self::DAY_START, 'dayEnd' => self::DAY_END,
+            'locations' => Location::orderBy('rm_location_id')->get(),
+            'focus' => $request->integer('find') ?: null,
         ]);
     }
 
@@ -113,14 +118,72 @@ class ScheduleController extends Controller
             ->map(fn ($w) => ['lat' => (float) $w->coordinates()[0], 'lng' => (float) $w->coordinates()[1], 'ref' => $w->reference,
                 'title' => $w->tradeLabel().' · '.$w->displayAddress(), 'url' => route('queue.show', $w)])->values();
 
-        return view('schedule.map', compact('date', 'tz', 'routes', 'points', 'waiting', 'loc'));
+        $locations = Location::orderBy('rm_location_id')->get();
+
+        return view('schedule.map', compact('date', 'tz', 'routes', 'points', 'waiting', 'loc', 'locations'));
     }
 
+    /** The location being viewed: picked in the page, else the last one picked, else one that has techs. */
     private function location(Request $request): Location
     {
-        return $request->user()->location
-            ?? Location::where('enabled', true)->orderBy('rm_location_id')->first()
+        $picked = $request->integer('location') ?: (int) $request->session()->get('schedule_location');
+        $loc = $picked ? Location::find($picked) : null;
+        if ($loc && $request->filled('location')) {
+            $request->session()->put('schedule_location', $loc->id);
+        }
+
+        $withTechs = fn () => Location::whereHas('technicians', fn ($q) => $q->where('active', true));
+
+        return $loc
+            ?? ($request->user()->location && $withTechs()->whereKey($request->user()->location_id)->exists() ? $request->user()->location : null)
+            ?? $withTechs()->orderByDesc('enabled')->orderBy('rm_location_id')->first()
             ?? Location::orderBy('rm_location_id')->firstOrFail();
+    }
+
+    /** Best open times for one job, with the reasons, for the "Find best time" box. */
+    public function suggest(WorkOrder $workOrder, SlotFinder $finder)
+    {
+        $workOrder->loadMissing('location', 'property', 'unit');
+        $tz = $workOrder->location->timezone;
+        $techs = $this->techs($workOrder->location);
+        $colors = $this->colors($techs);
+        $levels = [1 => 'Basic', 2 => 'Solid', 3 => 'Expert'];
+
+        $slots = collect($finder->find($workOrder, 6))->sortByDesc('score')->values()->map(function (Slot $slot, $i) use ($tz, $colors, $levels, $workOrder) {
+            $start = $slot->start->setTimezone($tz);
+            $w = $slot->why;
+            $reasons = [];
+            if ($workOrder->trade) {
+                $reasons[] = ($levels[$w['skill_level'] ?? 2] ?? 'Solid').' at '.$workOrder->tradeLabel();
+            }
+            if (! empty($w['same_building'])) {
+                $reasons[] = 'already at this building that day';
+            } elseif (($w['nearest_km'] ?? null) !== null) {
+                $reasons[] = Geo::driveMinutes($w['nearest_km']).' min drive from that tech\'s nearest stop';
+            }
+            $reasons[] = ($w['jobs_that_day'] ?? 0) === 0 ? 'nothing else booked that day' : $w['jobs_that_day'].' other '.Str::plural('job', $w['jobs_that_day']).' that day';
+
+            return [
+                'best' => $i === 0,
+                'technician_id' => $slot->technician->id,
+                'tech' => $slot->technician->name,
+                'color' => $colors[$slot->technician->id] ?? '#6b7280',
+                'date' => $start->toDateString(),
+                'start' => $start->format('Y-m-d H:i'),
+                'minute_of_day' => $start->hour * 60 + $start->minute,
+                'label' => $start->format('D M j').', '.$start->format('g:i').'–'.$slot->end->setTimezone($tz)->format('g:i A'),
+                'reasons' => $reasons,
+            ];
+        });
+
+        return response()->json([
+            'job' => [
+                'id' => $workOrder->id, 'ref' => $workOrder->reference, 'trade' => $workOrder->tradeLabel(),
+                'urgency' => $workOrder->urgency, 'minutes' => (int) ($workOrder->estimated_minutes ?: 60),
+                'where' => trim(($workOrder->property?->name ?? $workOrder->address_text).' '.($workOrder->unit?->name ?? '')),
+            ],
+            'slots' => $slots,
+        ]);
     }
 
     private function date(Request $request, string $tz): CarbonImmutable

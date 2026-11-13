@@ -30,11 +30,14 @@ class SlotFinder
         $candidates = [];
         foreach ($this->qualifiedTechs($wo) as $tech) {
             $level = $wo->trade ? max(1, $tech->skillLevel($wo->trade)) : 2;
-            for ($d = 0; $d <= (int) $cfg['horizon_days']; $d++) {
+            // horizon counts the tech's working days, so a Friday request still sees next week
+            $workdays = 0;
+            for ($d = 0; $d <= 21 && $workdays < (int) $cfg['horizon_days']; $d++) {
                 $day = $now->startOfDay()->addDays($d);
                 if (! in_array($day->isoWeekday(), $tech->workDays(), true)) {
                     continue;
                 }
+                $workdays++;
                 // routine work starts tomorrow; urgent can go today
                 if ($d === 0 && $wo->urgency === 'routine') {
                     continue;
@@ -49,15 +52,12 @@ class SlotFinder
                 $dayEnd = $day->setTimeFromTimeString((string) $tech->work_end);
                 $earliest = $now->addMinutes(90);
 
-                for ($ws = $dayStart; $ws->addMinutes($minutes)->lte($dayEnd); $ws = $ws->addMinutes(60)) {
+                for ($ws = $dayStart; $ws->addMinutes($this->reserve() + $minutes)->lte($dayEnd); $ws = $ws->addMinutes(30)) {
                     if ($ws->lt($earliest)) {
                         continue;
                     }
-                    // reserve the whole window in case the tech arrives at the end of it
-                    $blockEnd = $ws->addMinutes(min($window, 60) + $minutes);
-                    if ($blockEnd->gt($dayEnd->addMinutes(30))) {
-                        continue;
-                    }
+                    // hold part of the arrival window plus the job itself
+                    $blockEnd = $ws->addMinutes($this->reserve() + $minutes);
                     if ($this->overlaps($busy, $ws, $blockEnd)) {
                         continue;
                     }
@@ -73,7 +73,10 @@ class SlotFinder
                         - $jobsThatDay * 1.5
                         - ($ws->hour >= 15 ? 1 : 0);
 
-                    $candidates[] = new Slot($tech, $ws->utc(), $ws->addMinutes($window)->utc(), round($score, 3));
+                    $candidates[] = new Slot($tech, $ws->utc(), $ws->addMinutes($window)->utc(), round($score, 3), [
+                        'skill_level' => $level, 'nearest_km' => $nearest === null ? null : round($nearest, 1),
+                        'same_building' => $sameBuilding, 'jobs_that_day' => $jobsThatDay, 'days_out' => $d, 'job_minutes' => $minutes,
+                    ]);
                 }
             }
         }
@@ -83,7 +86,7 @@ class SlotFinder
         $picked = [];
         $seen = [];
         foreach ($candidates as $slot) {
-            $key = $slot->start->format('Y-m-d H');
+            $key = $slot->start->format('Y-m-d H:i');
             if (isset($seen[$key])) {
                 continue;
             }
@@ -104,7 +107,7 @@ class SlotFinder
     {
         $day = $start->setTimezone($tz)->startOfDay();
         $busy = array_filter($this->busyBlocks($tech, $day, $tz), fn ($b) => $b['work_order_id'] !== $ignoreWorkOrderId);
-        $end = $start->addMinutes(min((int) config('axiom.scheduling.window_minutes'), 60) + $minutes);
+        $end = $start->addMinutes($this->reserve() + $minutes);
 
         return ! $this->overlaps($busy, $start->setTimezone($tz), $end->setTimezone($tz));
     }
@@ -142,7 +145,7 @@ class SlotFinder
             $start = CarbonImmutable::parse($job->scheduled_start)->setTimezone($tz);
             $blocks[] = [
                 'start' => $start,
-                'end' => $start->addMinutes(min((int) config('axiom.scheduling.window_minutes'), 60) + (int) ($job->estimated_minutes ?: 60)),
+                'end' => $start->addMinutes($this->reserve() + (int) ($job->estimated_minutes ?: 60)),
                 'coords' => $job->coordinates(),
                 'property_id' => $job->property_id,
                 'work_order_id' => $job->id,
@@ -160,7 +163,7 @@ class SlotFinder
             $start = CarbonImmutable::parse($offer->starts_at)->setTimezone($tz);
             $blocks[] = [
                 'start' => $start,
-                'end' => $start->addMinutes(min((int) config('axiom.scheduling.window_minutes'), 60) + (int) ($offer->workOrder?->estimated_minutes ?: 60)),
+                'end' => $start->addMinutes($this->reserve() + (int) ($offer->workOrder?->estimated_minutes ?: 60)),
                 'coords' => $offer->workOrder?->coordinates(),
                 'property_id' => $offer->workOrder?->property_id,
                 'work_order_id' => $offer->work_order_id,
@@ -169,6 +172,12 @@ class SlotFinder
         }
 
         return $blocks;
+    }
+
+    /** Minutes of the arrival window held on the calendar besides the job itself. */
+    private function reserve(): int
+    {
+        return min((int) config('axiom.scheduling.window_minutes'), (int) config('axiom.scheduling.window_reserve_minutes', 30));
     }
 
     private function overlaps(array $busy, CarbonImmutable $start, CarbonImmutable $end): bool

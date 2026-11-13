@@ -58,6 +58,8 @@ return [
 
     'scheduling' => [
         'window_minutes' => 120,           // tenant-facing arrival window
+        'window_reserve_minutes' => 30,    // part of that window held on the tech's calendar besides the job
+        // horizon_days below counts working days
         'horizon_days' => 5,               // how far ahead to look for slots
         'offers_per_request' => 3,
         'offer_reply_hours' => 24,          // flag if no reply after this

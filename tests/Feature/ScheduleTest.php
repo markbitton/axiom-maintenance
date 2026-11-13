@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\Activity;
+use App\Models\Location;
 use App\Models\Technician;
 use App\Models\User;
 use App\Models\WorkOrder;
@@ -26,7 +28,8 @@ class ScheduleTest extends MaintenanceTestCase
         foreach ([WorkOrder::STATUS_SCHEDULED, WorkOrder::STATUS_CLOSED, WorkOrder::STATUS_OFFERED, WorkOrder::STATUS_TRIAGED] as $status) {
             $this->assertTrue(WorkOrder::where('status', $status)->exists(), "no {$status} jobs");
         }
-        $this->assertSame(5, WorkOrder::needsReview()->count());
+        $this->assertGreaterThanOrEqual(5, WorkOrder::needsReview()->count());
+        $this->assertGreaterThan(20, Activity::where('event', 'auto_booked')->count());
     }
 
     public function test_calendar_and_map_pages_render(): void
@@ -89,5 +92,60 @@ class ScheduleTest extends MaintenanceTestCase
         $this->actingAs($admin)->post('/admin/demo/reset')->assertRedirect();
         $this->assertGreaterThan(40, WorkOrder::count());
         $this->assertGreaterThan($before, WorkOrder::min('id'));
+    }
+
+    public function test_calendar_falls_back_to_a_location_with_techs_and_can_switch(): void
+    {
+        $utah = Location::where('rm_location_id', 9)->firstOrFail();
+        $this->scheduler->update(['location_id' => $utah->id]);
+        $job = WorkOrder::where('status', WorkOrder::STATUS_SCHEDULED)->firstOrFail();
+        $date = $job->scheduled_start->setTimezone('America/Boise')->toDateString();
+
+        $this->actingAs($this->scheduler)->get("/schedule?date={$date}")->assertOk()->assertSee('Mike Plumber');
+        $this->actingAs($this->scheduler)->get("/schedule?date={$date}&location={$utah->id}")->assertOk()->assertDontSee('Mike Plumber');
+        $this->actingAs($this->scheduler)->get("/map?date={$date}")->assertOk()->assertDontSee('Mike Plumber');
+    }
+
+    public function test_find_best_time_suggests_skilled_techs_with_reasons(): void
+    {
+        $job = WorkOrder::create(['location_id' => $this->idaho->id, 'property_id' => $this->property->id, 'unit_id' => $this->unit->id,
+            'tenant_id' => $this->tenant->id, 'description' => 'Toilet runs all night', 'trade' => 'plumbing', 'estimated_minutes' => 45,
+            'status' => WorkOrder::STATUS_TRIAGED]);
+
+        $res = $this->actingAs($this->scheduler)->getJson("/work-orders/{$job->id}/suggest")->assertOk()
+            ->assertJsonPath('job.ref', $job->reference)->assertJsonPath('job.minutes', 45)->json();
+
+        $this->assertNotEmpty($res['slots']);
+        $this->assertTrue($res['slots'][0]['best']);
+        $this->assertSame('Mike Plumber', $res['slots'][0]['tech']);
+        $this->assertStringContainsString('Plumbing', implode(' ', $res['slots'][0]['reasons']));
+    }
+
+    public function test_office_can_enter_a_work_order_and_have_it_booked_automatically(): void
+    {
+        $this->actingAs($this->scheduler)->get('/new-work-order')->assertOk()->assertSee('Maple Court');
+
+        $this->actingAs($this->scheduler)->post('/new-work-order', [
+            'location_id' => $this->idaho->id, 'unit_id' => $this->unit->id, 'description' => 'Kitchen faucet is dripping nonstop.',
+            'permission_to_enter' => 1, 'then' => 'auto',
+        ])->assertRedirect();
+
+        $wo = WorkOrder::latest('id')->firstOrFail();
+        $this->assertSame('manual', $wo->source);
+        $this->assertSame('plumbing', $wo->trade);
+        $this->assertSame(WorkOrder::STATUS_SCHEDULED, $wo->status);
+        $this->assertSame($this->tenant->id, $wo->tenant_id);
+    }
+
+    public function test_office_can_enter_a_work_order_and_pick_the_time(): void
+    {
+        $this->actingAs($this->scheduler)->post('/new-work-order', [
+            'location_id' => $this->idaho->id, 'address_text' => '9 Elm St, Boise', 'contact_name' => 'Walk In',
+            'description' => 'Bedroom window will not lock.', 'trade' => 'locks', 'estimated_minutes' => 30, 'then' => 'place',
+        ])->assertRedirect();
+
+        $wo = WorkOrder::latest('id')->firstOrFail();
+        $this->assertSame(['locks', 30, WorkOrder::STATUS_TRIAGED], [$wo->trade, $wo->estimated_minutes, $wo->status]);
+        $this->actingAs($this->scheduler)->get("/schedule?find={$wo->id}")->assertOk()->assertSee($wo->reference);
     }
 }

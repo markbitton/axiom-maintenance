@@ -47,7 +47,8 @@ class SchedulingTest extends MaintenanceTestCase
 
         foreach ($slots as $s) {
             $local = $s->start->setTimezone($tz);
-            $this->assertFalse($local->between($tomorrow9->subHours(2), $tomorrow9->addHours(2)), 'overlaps the booked 9am job: '.$local);
+            // each visit holds 30 min of its arrival window + the 60 min job, with a 15 min travel buffer
+            $this->assertTrue($local->lte($tomorrow9->subMinutes(105)) || $local->gte($tomorrow9->addMinutes(105)), 'overlaps the booked 9am job: '.$local);
             $this->assertGreaterThanOrEqual(8, $local->hour);
             $this->assertLessThan(17, $local->hour);
             $this->assertTrue($local->isWeekday());

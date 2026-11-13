@@ -9,6 +9,7 @@ use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\StatusController;
 use App\Http\Controllers\Tech\JobController;
 use App\Http\Controllers\WebhookController;
+use App\Http\Controllers\WorkOrderController;
 use App\Http\Middleware\VerifyIntakeKey;
 use App\Http\Middleware\VerifyTwilioSignature;
 use Illuminate\Support\Facades\Route;
@@ -52,6 +53,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/schedule', [ScheduleController::class, 'index'])->name('schedule');
         Route::post('/schedule/move', [ScheduleController::class, 'move'])->name('schedule.move');
         Route::get('/map', [ScheduleController::class, 'map'])->name('map');
+        Route::get('/work-orders/{workOrder}/suggest', [ScheduleController::class, 'suggest'])->name('schedule.suggest');
+        Route::get('/new-work-order', [WorkOrderController::class, 'create'])->name('work-orders.create');
+        Route::post('/new-work-order', [WorkOrderController::class, 'store'])->name('work-orders.store');
         Route::get('/work-orders/{workOrder}', [QueueController::class, 'show'])->name('queue.show');
         Route::post('/work-orders/{workOrder}/book', [QueueController::class, 'book'])->name('queue.book');
         Route::post('/work-orders/{workOrder}/reoffer', [QueueController::class, 'reoffer'])->name('queue.reoffer');

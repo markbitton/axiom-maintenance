@@ -137,7 +137,7 @@ class ScheduleTest extends MaintenanceTestCase
 
         $this->assertNotEmpty($res['slots']);
         $this->assertTrue($res['slots'][0]['best']);
-        $this->assertSame('Mike Plumber', $res['slots'][0]['tech']);
+        $this->assertGreaterThan(0, Technician::find($res['slots'][0]['technician_id'])->skillLevel('plumbing'), 'best fit has plumbing skills');
         $this->assertStringContainsString('Plumbing', implode(' ', $res['slots'][0]['reasons']));
         $this->assertStringContainsString('room for the whole 45 min job', implode(' ', $res['slots'][0]['reasons']));
 

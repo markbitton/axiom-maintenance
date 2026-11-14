@@ -30,6 +30,8 @@
 
 @include('work-orders._kit', ['forTech' => true])
 
+@include('receipts._card')
+
 @if($photosEnabled)
 <div class="card">
     <h3 style="margin-top:0">Photos</h3>

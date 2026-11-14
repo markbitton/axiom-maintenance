@@ -35,7 +35,7 @@ class QueueController extends Controller
 
     public function show(WorkOrder $workOrder, SlotFinder $finder, R2Storage $r2, Invoicer $invoicer)
     {
-        $workOrder->load('tenant', 'property', 'unit', 'technician.user', 'location', 'messages.user', 'parts.part', 'offers.technician.user', 'activity', 'photos',
+        $workOrder->load('tenant', 'property', 'unit', 'technician.user', 'location', 'messages.user', 'parts.part', 'parts.vendor', 'receipts.vendor', 'receipts.workOrders', 'offers.technician.user', 'activity', 'photos',
             'timeEntries.technician.user', 'timeEntries.invoice', 'invoices');
 
         return view('queue.show', [

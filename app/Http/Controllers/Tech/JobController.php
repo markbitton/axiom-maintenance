@@ -34,7 +34,7 @@ class JobController extends Controller
     public function show(Request $request, WorkOrder $workOrder, PartSuggester $parts, R2Storage $r2, TimeClock $clock)
     {
         $this->authorizeJob($request, $workOrder);
-        $workOrder->load('tenant', 'property', 'unit', 'location', 'messages.user', 'parts', 'photos');
+        $workOrder->load('tenant', 'property', 'unit', 'location', 'messages.user', 'parts.part', 'parts.vendor', 'photos', 'receipts.vendor', 'receipts.workOrders');
         $history = $workOrder->unit_id
             ? WorkOrder::where('unit_id', $workOrder->unit_id)->where('id', '!=', $workOrder->id)->latest()->limit(5)->get()
             : collect();

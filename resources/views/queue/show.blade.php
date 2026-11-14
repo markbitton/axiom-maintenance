@@ -68,11 +68,7 @@
 
 @include('work-orders._kit')
 
-@if($wo->parts->isNotEmpty())
-<div class="card"><h3 style="margin-top:0">Parts</h3>
-    @foreach($wo->parts as $p)<div>{{ $p->part_name }} × {{ $p->quantity }} <span class="muted">{{ $p->used ? 'used' : ($p->suggested ? 'suggested '.round(100 * ($p->suggestion_confidence ?? 0)).'%' : '') }}</span></div>@endforeach
-</div>
-@endif
+@include('receipts._card')
 
 <div class="card">
     <h3 style="margin-top:0">Time &amp; billing</h3>

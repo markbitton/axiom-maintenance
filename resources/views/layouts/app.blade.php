@@ -98,6 +98,7 @@
                 {!! $link('map', 'Map') !!}
                 {!! $link('queue', 'Queue', 'queue*') !!}
                 {!! $link('invoices', 'Invoices', 'invoices*') !!}
+                {!! $link('parts', 'Parts', 'parts*') !!}
             @endif
             @if($u->technician)
                 {!! $link('tech.today', 'My day', 'tech.*') !!}

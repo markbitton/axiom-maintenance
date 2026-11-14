@@ -9,7 +9,10 @@ use App\Models\Location;
 use App\Models\LocationPing;
 use App\Models\Message;
 use App\Models\Part;
+use App\Models\PartPrice;
 use App\Models\Property;
+use App\Models\Receipt;
+use App\Models\ReceiptLine;
 use App\Models\Skill;
 use App\Models\SlotOffer;
 use App\Models\StockLocation;
@@ -18,6 +21,7 @@ use App\Models\Tenant;
 use App\Models\TimeEntry;
 use App\Models\Unit;
 use App\Models\User;
+use App\Models\Vendor;
 use App\Models\WorkOrder;
 use App\Models\WorkOrderPart;
 use App\Services\Billing\Invoicer;
@@ -100,7 +104,7 @@ class DemoWorkOrdersSeeder extends Seeder
     private const WINDOWS = [8, 10, 13, 15];
 
     /** Bump when the demo set changes; beta's deploy then rebuilds it. */
-    public const VERSION = 4;
+    public const VERSION = 5;
 
     public function run(): void
     {
@@ -139,6 +143,7 @@ class DemoWorkOrdersSeeder extends Seeder
             }
         }
         $this->twoVisitJob($idaho, $tenants, $techs->first(), $days->filter(fn ($d) => $d->lt($today))->values(), $office);
+        $this->receipts();
         $this->invoices();
 
         // From now on: plain requests, each run through the real auto-scheduler, which picks the
@@ -168,6 +173,9 @@ class DemoWorkOrdersSeeder extends Seeder
     public static function reset(): void
     {
         DB::transaction(function () {
+            PartPrice::query()->delete();
+            ReceiptLine::query()->delete();
+            Receipt::query()->delete();
             InvoiceLine::query()->delete();
             TimeEntry::query()->update(['invoice_id' => null]);
             WorkOrderPart::query()->update(['invoice_id' => null]);
@@ -496,6 +504,42 @@ class DemoWorkOrdersSeeder extends Seeder
                     'paid_at' => $paid ? $done->addDays(mt_rand(1, 3)) : null,
                 ])->save();
             });
+    }
+
+    /**
+     * Receipts for the parts used last week: each tech's parts for a day on one receipt (so it covers several jobs),
+     * from a few local stores at slightly different prices, so the parts page can show where each part is cheapest.
+     */
+    private function receipts(): void
+    {
+        $stores = ['Home Depot' => 1.0, "Lowe's" => 1.04, 'Ferguson Plumbing Supply' => 0.93, 'Ace Hardware' => 1.15];
+        $vendors = collect($stores)->map(fn ($m, $name) => Vendor::resolve($name));
+        $parts = WorkOrderPart::with('workOrder', 'part')->where('used', true)->whereNull('unit_cost')->whereNotNull('part_id')
+            ->whereHas('workOrder', fn ($q) => $q->whereNotNull('completed_at'))->get()
+            ->groupBy(fn ($p) => $p->workOrder->technician_id.'|'.$p->workOrder->completed_at->toDateString());
+
+        foreach ($parts as $group) {
+            $first = $group->first()->workOrder;
+            $store = array_keys($stores)[mt_rand(0, count($stores) - 1)];
+            if ($group->first()->part?->trade !== 'plumbing' && $store === 'Ferguson Plumbing Supply') {
+                $store = 'Home Depot';
+            }
+            $vendor = $vendors[$store];
+            $receipt = Receipt::create(['vendor_id' => $vendor->id, 'technician_id' => $first->technician_id, 'purchased_on' => $first->completed_at->toDateString(),
+                'read_by' => 'manual']);
+            $receipt->workOrders()->sync($group->pluck('work_order_id')->unique()->all());
+            $sum = 0;
+            foreach ($group as $wop) {
+                $base = (float) ($wop->part->unit_cost ?: 10);
+                $price = round($base * $stores[$store] * (1 + mt_rand(-4, 4) / 100), 2);
+                $line = $receipt->lines()->create(['description' => strtoupper($wop->part_name), 'quantity' => $wop->quantity, 'unit_price' => $price,
+                    'amount' => round($price * $wop->quantity, 2), 'part_id' => $wop->part_id, 'work_order_id' => $wop->work_order_id, 'work_order_part_id' => $wop->id]);
+                $wop->update(['unit_cost' => $price, 'vendor_id' => $vendor->id]);
+                PartPrice::create(['part_id' => $wop->part_id, 'vendor_id' => $vendor->id, 'unit_cost' => $price, 'purchased_on' => $receipt->purchased_on, 'receipt_line_id' => $line->id]);
+                $sum += $line->amount;
+            }
+            $receipt->update(['subtotal' => round($sum, 2), 'tax' => round($sum * 0.06, 2), 'total' => round($sum * 1.06, 2)]);
+        }
     }
 
     private function needsAPerson(Location $loc, array $tenants, $techs, CarbonImmutable $today): void

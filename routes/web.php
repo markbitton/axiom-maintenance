@@ -7,7 +7,9 @@ use App\Http\Controllers\Admin\TechnicianController;
 use App\Http\Controllers\Api\IntakeController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\PartController;
 use App\Http\Controllers\QueueController;
+use App\Http\Controllers\ReceiptController;
 use App\Http\Controllers\ScheduleController;
 use App\Http\Controllers\StatusController;
 use App\Http\Controllers\Tech\ClockController;
@@ -61,6 +63,10 @@ Route::middleware('auth')->group(function () {
         Route::post('/schedule/move', [ScheduleController::class, 'move'])->name('schedule.move');
         Route::post('/schedule/propose', [ScheduleController::class, 'propose'])->name('schedule.propose');
         Route::post('/schedule/approve', [ScheduleController::class, 'approve'])->name('schedule.approve');
+        Route::get('/parts', [PartController::class, 'index'])->name('parts');
+        Route::post('/parts', [PartController::class, 'store'])->name('parts.store');
+        Route::get('/parts/{part}', [PartController::class, 'show'])->name('parts.show');
+        Route::put('/parts/{part}', [PartController::class, 'update'])->name('parts.update');
         Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices');
         Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->name('invoices.show');
         Route::post('/invoices/{invoice}/status', [InvoiceController::class, 'status'])->name('invoices.status');
@@ -76,6 +82,14 @@ Route::middleware('auth')->group(function () {
         Route::post('/work-orders/{workOrder}/resolve', [QueueController::class, 'resolve'])->name('queue.resolve');
         Route::post('/work-orders/{workOrder}/cancel', [QueueController::class, 'cancel'])->name('queue.cancel');
         Route::post('/work-orders/{workOrder}/message', [QueueController::class, 'message'])->name('queue.message');
+    });
+
+    Route::middleware('role:tech,admin,scheduler')->group(function () {
+        Route::get('/receipts/new', [ReceiptController::class, 'create'])->name('receipts.create');
+        Route::post('/receipts', [ReceiptController::class, 'store'])->name('receipts.store');
+        Route::get('/receipts/{receipt}', [ReceiptController::class, 'show'])->name('receipts.show');
+        Route::put('/receipts/{receipt}', [ReceiptController::class, 'update'])->name('receipts.update');
+        Route::get('/receipts/{receipt}/photo', [ReceiptController::class, 'photo'])->name('receipts.photo');
     });
 
     Route::middleware('role:tech,admin,scheduler')->prefix('tech')->name('tech.')->group(function () {

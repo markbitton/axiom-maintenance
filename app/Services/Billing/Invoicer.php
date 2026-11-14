@@ -50,7 +50,8 @@ class Invoicer
 
         $markup = (float) Setting::get('parts_markup_percent');
         foreach ($this->unbilledParts($wo) as $part) {
-            $cost = round((float) ($part->part?->unit_cost ?? 0) * (1 + $markup / 100), 2);
+            // What was actually paid (from a receipt) when we have it, else the catalog cost.
+            $cost = round((float) ($part->unit_cost ?? $part->part?->unit_cost ?? 0) * (1 + $markup / 100), 2);
             $lines[] = [
                 'kind' => 'part', 'description' => $part->part_name, 'quantity' => (float) $part->quantity,
                 'unit_price' => $cost, 'amount' => round($cost * $part->quantity, 2), 'work_order_part_id' => $part->id,

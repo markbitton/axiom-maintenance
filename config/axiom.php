@@ -51,6 +51,8 @@ return [
 
     'ai' => [
         'enabled' => (bool) env('AI_TRIAGE_ENABLED', false),
+        // Receipt reading needs only the API key; set AI_RECEIPTS_ENABLED=false to switch it off.
+        'receipts' => (bool) env('AI_RECEIPTS_ENABLED', true),
         'model' => env('AI_TRIAGE_MODEL', 'claude-opus-5-5'),
         'effort' => env('AI_TRIAGE_EFFORT', 'low'),
         'min_confidence' => (float) env('AI_MIN_CONFIDENCE', 0.7),

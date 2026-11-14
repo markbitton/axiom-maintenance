@@ -24,7 +24,8 @@ TXT;
 
     public function enabled(): bool
     {
-        return (bool) config('axiom.ai.enabled') && (string) config('services.anthropic.key') !== '';
+        // On by itself once ANTHROPIC_API_KEY is in .env; techs type the prices until then.
+        return (bool) config('axiom.ai.receipts') && (string) config('services.anthropic.key') !== '';
     }
 
     /** @return array{vendor:?string, date:?string, subtotal:?float, tax:?float, total:?float, lines:list<array>}|null */

@@ -215,7 +215,8 @@ class TimeBillingTest extends MaintenanceTestCase
         $this->assertGreaterThan(0, $r['moved']);
         $this->assertStringContainsString('arrival window is now', end($this->sms->sent)['body']);
 
-        $this->actingAs($this->staff('scheduler'))->post('/schedule/optimize', ['date' => '2026-11-10', 'location' => $this->idaho->id])
+        // The office version only suggests moves for visits 24+ hours away, and nothing changes until approved.
+        $this->actingAs($this->staff('scheduler'))->post('/schedule/propose', ['kind' => 'move', 'location' => $this->idaho->id])
             ->assertRedirect()->assertSessionHas('status');
     }
 

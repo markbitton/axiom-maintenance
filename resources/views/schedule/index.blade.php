@@ -48,7 +48,7 @@
     .legend { display:flex; gap:12px; flex-wrap:wrap; font-size:12px; color:var(--muted); margin-top:8px; }
     .stop { display:inline-block; background:rgba(255,255,255,.95); color:#111827; border-radius:50%; width:17px; height:17px; text-align:center; font:700 11px/17px system-ui; margin-right:5px; }
     .drive { float:right; opacity:.95; font-size:11px; }
-    .ghost { position:absolute; left:3px; right:3px; border:2px dashed var(--green); background:rgba(16,185,129,.12); border-radius:7px; z-index:5; cursor:pointer; font-size:12px; color:#065f46; padding:3px 6px; font-weight:600; }
+    .ghost { position:absolute; left:3px; right:3px; border:2px dashed var(--green); background:rgba(16,185,129,.12); border-radius:7px; z-index:5; font-size:12px; color:#065f46; padding:3px 6px; font-weight:600; }
     .ghost.best { border-style:solid; background:rgba(16,185,129,.22); }
     .finder { border:2px dashed #93c5fd; border-radius:10px; padding:10px; margin-bottom:12px; background:#f8fbff; }
     .finder.over { background:#dbeafe; border-color:var(--brand); }
@@ -57,7 +57,18 @@
     .slot.best { box-shadow:0 0 0 2px #a7f3d0; }
     .slot ul { margin:3px 0 6px; padding-left:16px; color:var(--muted); font-size:12px; }
     .slot button { padding:5px 10px; font-size:13px; }
+    .approve { display:flex; gap:6px; align-items:center; margin:6px 0 0; font-weight:600; color:#065f46; cursor:pointer; }
+    .approve input { width:auto; margin:0; transform:scale(1.25); }
+    .ghost .approve { margin-top:4px; font-size:12px; }
     .mini { font-size:12px; padding:3px 8px; margin-top:4px; }
+    .plan-box { border:1px solid var(--line); border-radius:10px; padding:10px; margin-bottom:12px; }
+    .plan-box h3 { margin:0 0 6px; font-size:16px; }
+    .prop-row { display:flex; gap:8px; align-items:flex-start; border:1px solid var(--line); border-left:4px solid; border-radius:8px; padding:6px 8px; margin:5px 0; font-weight:400; font-size:12.5px; cursor:pointer; }
+    .prop-row input { width:auto; margin-top:3px; transform:scale(1.2); }
+    .ghost.proposal.move { border-color:#d97706; background:rgba(245,158,11,.14); color:#92400e; }
+    .ghost.proposal .approve { color:inherit; }
+    .chip.proposal { display:block; border:2px dashed var(--green); background:rgba(16,185,129,.1); color:#065f46; font-weight:400; margin:0 0 3px; cursor:pointer; }
+    .chip.proposal input { width:auto; margin:0 4px 0 0; }
     #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:#111827; color:#fff; padding:10px 16px; border-radius:8px; display:none; z-index:50; }
     @media (max-width:900px) { .sched-wrap { flex-direction:column; } .sched-side { width:100%; } }
 </style>
@@ -134,6 +145,14 @@
                             <div class="st">{{ $statusLabel[$job->status] ?? $job->status }}@if($job->urgency !== 'routine') · {{ $job->urgency }}@endif</div>
                         </div>
                     @endforeach
+                    @foreach($proposals->where('proposed_technician_id', $tech->id)->filter(fn ($p) => $local($p->proposed_start)->isSameDay($date)) as $p)
+                        @php $ps = $local($p->proposed_start); @endphp
+                        <div class="ghost proposal {{ $p->proposed_kind }}" style="top:{{ max(0, (($ps->hour - $dayStart) * 60 + $ps->minute) * $pxPerMin) }}px;height:{{ max(52, (int) (($p->estimated_minutes ?: 60) + 30) * $pxPerMin - 3) }}px" title="{{ $p->proposed_reason }}">
+                            <div>{{ $p->proposed_kind === 'move' ? 'Move here' : 'Suggested' }} · {{ $p->reference }} · {{ $p->tradeLabel() }}</div>
+                            <div style="font-weight:400">{{ $ps->format('g:i A') }}@if($p->proposed_kind === 'move' && $p->scheduled_start) (now {{ $local($p->scheduled_start)->format('g:i') }})@endif · {{ $p->property?->name }}</div>
+                            <label class="approve"><input type="checkbox" name="ids[]" value="{{ $p->id }}" form="proposals-form" data-pid="{{ $p->id }}"> Approve</label>
+                        </div>
+                    @endforeach
                 </div>
             </div>
         @empty
@@ -166,6 +185,10 @@
                                @unless($done) draggable="true" data-id="{{ $job->id }}" data-ref="{{ $job->reference }}" data-time="{{ $s->format('H:i') }}" @endunless
                                title="{{ $job->description }}">{{ $s->format('g:i') }} {{ $job->tradeLabel() }} · {{ $job->property?->name }}</a>
                         @endforeach
+                        @foreach($proposals->where('proposed_technician_id', $tech->id)->filter(fn ($p) => $local($p->proposed_start)->toDateString() === $d->toDateString()) as $p)
+                            <label class="chip proposal" title="{{ $p->proposed_reason }}"><input type="checkbox" name="ids[]" value="{{ $p->id }}" form="proposals-form" data-pid="{{ $p->id }}">
+                                {{ $local($p->proposed_start)->format('g:i') }} {{ $p->proposed_kind === 'move' ? 'move' : 'new' }} · {{ $p->tradeLabel() }} · {{ $p->property?->name }}</label>
+                        @endforeach
                     </td>
                 @endforeach
             </tr>
@@ -178,20 +201,50 @@
 
 <aside class="sched-side card">
     <div class="finder" id="finder">
-        <h3>Find best time</h3>
-        <div class="muted" id="finder-help">Drag any job here, or press "Best times" on one below. You'll get the best open times based on the trade, how long the job takes, who's nearby and how full each day is.</div>
+        <h3>Find best tech and time</h3>
+        <div class="muted" id="finder-help">Drag any job here, or press "Best tech &amp; time" on one below. It finds the tech with the right skills and room for the whole job, puts it on the calendar at the recommended time, and you tick Approve to book it.</div>
         <div id="finder-out"></div>
+    </div>
+    <div class="plan-box">
+        <h3>Plan in bulk</h3>
+        <form method="post" action="{{ route('schedule.propose') }}">@csrf
+            <input type="hidden" name="location" value="{{ $loc->id }}"><input type="hidden" name="date" value="{{ $date->toDateString() }}"><input type="hidden" name="view" value="{{ $view }}">
+            <button name="kind" value="place" style="width:100%">Suggest tech &amp; time for all unbooked</button>
+            <button name="kind" value="move" class="secondary" style="width:100%;margin-top:6px">Suggest moves to cut drive time</button>
+        </form>
+        <p class="muted" style="margin:6px 0 0">Suggestions show on the calendar with a checkbox. Nothing is booked and no tenant is texted until you approve. Moves are only suggested for visits at least 24 hours away.</p>
+        @if($proposals->isNotEmpty())
+            <form method="post" action="{{ route('schedule.approve') }}" id="proposals-form" class="proposal-list">@csrf
+                <div class="row" style="align-items:center;margin:8px 0 4px">
+                    <b style="flex:2">Waiting for your OK ({{ $proposals->count() }})</b>
+                    <label style="flex:1;margin:0;font-weight:400;text-align:right;white-space:nowrap"><input type="checkbox" id="check-all" style="width:auto"> all</label>
+                </div>
+                @foreach($proposals as $p)
+                    @php $ps = $local($p->proposed_start); @endphp
+                    <label class="prop-row" style="border-left-color:{{ $colors[$p->proposed_technician_id] ?? '#9ca3af' }}">
+                        <input type="checkbox" name="ids[]" value="{{ $p->id }}" data-pid="{{ $p->id }}">
+                        <span><b>{{ $p->proposed_kind === 'move' ? 'Move' : 'Book' }} {{ $p->reference }}</b> · {{ $p->tradeLabel() }} · {{ $p->property?->name }} {{ $p->unit?->name }}<br>
+                            {{ $p->proposedTechnician?->name }}, <a href="{{ route('schedule', ['date' => $ps->toDateString(), 'view' => 'day']) }}">{{ $ps->format('D M j, g:i A') }}</a>@if($p->proposed_kind === 'move' && $p->scheduled_start) <span class="muted">(was {{ $local($p->scheduled_start)->format('g:i A') }})</span>@endif
+                            <br><span class="muted">{{ $p->proposed_reason }}</span></span>
+                    </label>
+                @endforeach
+                <div class="row" style="margin-top:8px">
+                    <button name="action" value="approve">Approve checked</button>
+                    <button name="action" value="dismiss" class="secondary">Dismiss checked</button>
+                </div>
+            </form>
+        @endif
     </div>
     <a class="btn" href="{{ route('work-orders.create', ['location' => $loc->id]) }}" style="display:block;text-align:center;margin-bottom:12px">+ New work order</a>
     <h3 style="margin:0 0 4px">Not booked yet ({{ $unscheduled->count() }})</h3>
-    <p class="muted" style="margin:0 0 6px">@if($view === 'day')Drag one onto a tech's column to book it, or into Find best time.@else Drag one into Find best time, or open a day to place it yourself.@endif</p>
+    <p class="muted" style="margin:0 0 6px">@if($view === 'day')Drag one onto a tech's column to book it, or into Find best tech and time.@else Drag one into Find best tech and time, or open a day to place it yourself.@endif</p>
     @forelse($unscheduled as $wo)
         <div class="card-job {{ $wo->urgency }}" draggable="true" data-id="{{ $wo->id }}" data-ref="{{ $wo->reference }}" data-new="1">
             <a href="{{ route('queue.show', $wo) }}"><b>{{ $wo->reference }}</b></a> · {{ $wo->tradeLabel() }}
             @if($wo->urgency !== 'routine')<span class="pill {{ $wo->urgency }}">{{ $wo->urgency }}</span>@endif
             <div class="muted">{{ $wo->property?->name ?? $wo->address_text }} {{ $wo->unit?->name }}</div>
             <div class="muted">{{ $wo->status === 'offered' ? 'Times texted, waiting on tenant' : ($wo->review_reason ?? 'New') }}</div>
-            <button type="button" class="secondary mini" data-find="{{ $wo->id }}">Best times</button>
+            <button type="button" class="secondary mini" data-find="{{ $wo->id }}">Best tech &amp; time</button>
         </div>
     @empty
         <p>Everything is booked.</p>
@@ -218,8 +271,7 @@
     });
 
     async function book(job, techId, start, label) {
-        if (!confirm(`${job.ref}: ${label}?\n\nThe tenant will get a text with the time.`)) return;
-        toast('Saving…');
+        toast(`Booking ${job.ref}: ${label}…`);
         const res = await fetch(@json(route('schedule.move')), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf },
@@ -252,48 +304,88 @@
         send(z.dataset.tech, `${z.dataset.date} ${drag.time}`, `${z.dataset.techName} on ${z.dataset.date} at ${fmt(h * 60 + m)}`);
     });
 
-    // "Find best time": ask the scheduler for the best open times for one job.
+    // "Find best tech and time": ask the scheduler which techs fit this job and when.
     const out = document.getElementById('finder-out'), help = document.getElementById('finder-help');
     const esc = (t) => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const suggestUrl = @json(route('schedule.suggest', ['workOrder' => '__ID__']));
+    const isDay = @json($view === 'day');
     async function findTimes(id) {
         document.querySelectorAll('.ghost').forEach(g => g.remove());
-        out.innerHTML = '<p class="muted">Looking for the best times…</p>';
+        out.innerHTML = '<p class="muted">Checking techs and schedules…</p>';
         const res = await fetch(suggestUrl.replace('__ID__', id), { headers: { 'Accept': 'application/json' } });
         if (!res.ok) { out.innerHTML = '<p class="muted">Could not load times for that job.</p>'; return; }
-        const { job, slots } = await res.json();
+        const { job, slots, qualified } = await res.json();
         help.style.display = 'none';
         const mins = job.minutes < 60 ? `${job.minutes} min` : `${+(job.minutes / 60).toFixed(1)} hr`;
         let html = `<p style="margin:6px 0"><b>${esc(job.ref)}</b> · ${esc(job.trade)} · about ${mins}${job.urgency !== 'routine' ? ` · <span class="pill ${esc(job.urgency)}">${esc(job.urgency)}</span>` : ''}<br><span class="muted">${esc(job.where)}</span></p>`;
-        if (!slots.length) html += '<p>No open times in the next few days for a tech with this skill. Try a different trade or length on the job page.</p>';
-        slots.forEach((s, i) => {
-            html += `<div class="slot ${s.best ? 'best' : ''}" style="border-left-color:${s.color}">
-                <b>${s.best ? '★ Best: ' : ''}${esc(s.label)}</b><br>${esc(s.tech)}
-                <ul>${s.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
-                <button type="button" data-slot="${i}">Book this time</button></div>`;
-        });
-        html += `<button type="button" class="secondary mini" id="finder-clear">Clear</button>`;
-        out.innerHTML = html;
-        out.querySelectorAll('[data-slot]').forEach(b => b.addEventListener('click', () => {
-            const s = slots[b.dataset.slot]; book(job, s.technician_id, s.start, `${s.tech}, ${s.label}`);
-        }));
-        document.getElementById('finder-clear').addEventListener('click', () => { out.innerHTML = ''; help.style.display = ''; document.querySelectorAll('.ghost').forEach(g => g.remove()); });
+        if (!slots.length) {
+            out.innerHTML = html + `<p>None of the ${qualified} ${qualified === 1 ? 'tech' : 'techs'} with this skill has room for the whole job in the next few days. Drag it onto a day yourself, or shorten the job on its page.</p>`
+                + `<button type="button" class="secondary mini" id="finder-clear">Clear</button>`;
+            document.getElementById('finder-clear').addEventListener('click', clear);
+            return;
+        }
 
-        // On the day view, also outline the suggested times right on the calendar.
-        slots.forEach(s => {
+        // Show it on the calendar: jump to the recommended day if we're not looking at it.
+        const best = slots[0];
+        if (!isDay || best.date !== day) {
+            const url = new URL(location.href);
+            url.searchParams.set('view', 'day'); url.searchParams.set('date', best.date); url.searchParams.set('find', job.id);
+            location.href = url.toString();
+            return;
+        }
+
+        let pick = 0;
+        const render = () => {
+            const s = slots[pick];
+            out.innerHTML = html + `<div class="slot best" style="border-left-color:${s.color}">
+                <b style="color:${s.color}">${esc(s.tech)}</b> · <b>${esc(s.label)}</b>
+                <ul>${s.reasons.map(r => `<li>${esc(r)}</li>`).join('')}</ul>
+                <label class="approve"><input type="checkbox" id="approve-pick"> Approve this time</label>
+            </div>
+            ${slots.length > 1 ? `<button type="button" class="secondary mini" id="finder-next">Show another option</button>` : ''}
+            <button type="button" class="secondary mini" id="finder-clear">Clear</button>`;
+            document.getElementById('approve-pick').addEventListener('change', e => { if (e.target.checked) approve(s); });
+            document.getElementById('finder-clear').addEventListener('click', clear);
+            document.getElementById('finder-next')?.addEventListener('click', () => {
+                pick = (pick + 1) % slots.length;
+                if (slots[pick].date !== day) {
+                    const url = new URL(location.href); url.searchParams.set('date', slots[pick].date); url.searchParams.set('find', job.id);
+                    url.searchParams.set('pick', pick); location.href = url.toString(); return;
+                }
+                render();
+            });
+            placeGhost(s);
+        };
+        const approve = (s) => book(job, s.technician_id, s.start, `${s.tech}, ${s.label}`);
+        const placeGhost = (s) => {
+            document.querySelectorAll('.ghost').forEach(g => g.remove());
             const lane = document.querySelector(`.drop-day[data-tech="${s.technician_id}"]`);
-            if (!lane || s.date !== day) return;
+            if (!lane) return;
             const g = document.createElement('div');
-            g.className = 'ghost' + (s.best ? ' best' : '');
+            g.className = 'ghost best';
             g.style.top = ((s.minute_of_day - dayStart * 60) * pxPerMin) + 'px';
-            g.style.height = (120 * pxPerMin - 3) + 'px';
-            g.textContent = (s.best ? '★ ' : '') + 'Open: ' + s.label.split(', ')[1];
-            g.addEventListener('click', () => book(job, s.technician_id, s.start, `${s.tech}, ${s.label}`));
+            g.style.height = (Math.max(job.minutes + 30, 60) * pxPerMin - 3) + 'px';
+            g.innerHTML = `<div>${esc(job.ref)} · ${esc(job.trade)}</div><div style="font-weight:400">Recommended ${esc(s.label.split(', ')[1])}</div>
+                <label class="approve"><input type="checkbox"> Approve</label>`;
+            g.querySelector('input').addEventListener('change', e => { if (e.target.checked) approve(s); });
             lane.appendChild(g);
-        });
-        const first = slots.find(s => s.date === day);
-        if (first) document.querySelector('.ghost')?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            g.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        };
+        const wanted = +(new URL(location.href).searchParams.get('pick') || 0);
+        if (wanted > 0 && wanted < slots.length && slots[wanted].date === day) pick = wanted;
+        render();
     }
+    function clear() {
+        out.innerHTML = ''; help.style.display = '';
+        document.querySelectorAll('.ghost').forEach(g => g.remove());
+        const url = new URL(location.href); url.searchParams.delete('find'); url.searchParams.delete('pick'); history.replaceState(null, '', url);
+    }
+    // Calendar and list checkboxes for the same suggestion stay in step.
+    document.querySelectorAll('input[data-pid]').forEach(cb => cb.addEventListener('change', () => {
+        document.querySelectorAll(`input[data-pid="${cb.dataset.pid}"]`).forEach(o => { o.checked = cb.checked; });
+    }));
+    document.getElementById('check-all')?.addEventListener('change', e => document.querySelectorAll('input[data-pid]').forEach(o => { o.checked = e.target.checked; }));
+
     zone('#finder', () => findTimes(drag.id));
     document.querySelectorAll('[data-find]').forEach(b => b.addEventListener('click', () => findTimes(b.dataset.find)));
     @if($focus) findTimes({{ (int) $focus }}); @endif

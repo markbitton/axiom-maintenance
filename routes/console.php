@@ -10,7 +10,8 @@ use App\Models\WorkOrder;
 use App\Services\Photos\R2Storage;
 use App\Services\RentManager\IssueSync;
 use App\Services\RentManager\RentManagerClient;
-use App\Services\Scheduling\RouteOptimizer;
+use App\Services\Scheduling\Planner;
+use App\Services\Scheduling\RoutePlanner;
 use App\Services\Scheduling\Texts;
 use App\Services\Sms\Messenger;
 use Carbon\CarbonImmutable;
@@ -69,12 +70,16 @@ Artisan::command('visits:remind', function (Messenger $messenger) {
         });
 })->purpose('Text tenants the day before their visit');
 
-Artisan::command('routes:plan', function (RouteOptimizer $optimizer) {
-    Technician::with('location')->where('active', true)->get()->each(function (Technician $t) use ($optimizer) {
-        $r = $optimizer->optimizeDay($t, CarbonImmutable::now($t->location->timezone)->addDay(), notify: true);
-        $this->line("{$t->name}: {$r['stops']} stops, {$r['before']} → {$r['after']} min driving, {$r['moved']} re-timed");
+Artisan::command('routes:plan', function (RoutePlanner $planner, Planner $suggest) {
+    // Tomorrow: put stops in driving order without changing anyone's time (tenants already have them).
+    Technician::with('location')->where('active', true)->get()
+        ->each(fn ($t) => $planner->planDay($t, CarbonImmutable::now($t->location->timezone)->addDay()));
+    // Further out: suggest drive-saving moves for the office to approve (tenants get 24+ hours' notice).
+    Location::enabled()->get()->each(function (Location $loc) use ($suggest) {
+        $r = $suggest->proposeMoves($loc);
+        $this->line("{$loc->name}: {$r['moves']} suggested moves, about {$r['saved']} min less driving");
     });
-})->purpose("Order each tech's stops for tomorrow by shortest drive from the office, and text tenants whose time moved");
+})->purpose("Order tomorrow's stops and suggest drive-saving moves for later days");
 
 Artisan::command('workorders:close', function () {
     WorkOrder::where('status', WorkOrder::STATUS_COMPLETED)->whereNull('needs_review_at')
@@ -105,7 +110,6 @@ Schedule::command('rm:pull')->everyTwoMinutes()->withoutOverlapping();
 Schedule::command('queue:work --stop-when-empty --max-time=50')->everyMinute()->withoutOverlapping();
 Schedule::command('offers:follow-up')->hourly();
 Schedule::command('visits:remind')->dailyAt('17:00')->timezone('America/Boise');
-// Plan tomorrow's routes before the 5 PM reminder texts go out, so reminders carry the final times.
 Schedule::command('routes:plan')->dailyAt('16:00')->timezone('America/Boise');
 Schedule::command('workorders:close')->hourly();
 Schedule::command('photos:purge')->dailyAt('03:00');

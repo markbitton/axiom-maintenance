@@ -7,7 +7,7 @@ use App\Models\Technician;
 use App\Models\WorkOrder;
 use App\Services\Scheduling\AutoScheduler;
 use App\Services\Scheduling\Geo;
-use App\Services\Scheduling\RouteOptimizer;
+use App\Services\Scheduling\Planner;
 use App\Services\Scheduling\RoutePlanner;
 use App\Services\Scheduling\Slot;
 use App\Services\Scheduling\SlotFinder;
@@ -52,6 +52,8 @@ class ScheduleController extends Controller
             'dayStart' => self::DAY_START, 'dayEnd' => self::DAY_END,
             'locations' => Location::orderBy('rm_location_id')->get(),
             'focus' => $request->integer('find') ?: null,
+            'proposals' => WorkOrder::with('property', 'unit', 'proposedTechnician.user')->where('location_id', $loc->id)
+                ->whereNotNull('proposed_start')->orderBy('proposed_start')->get(),
         ]);
     }
 
@@ -79,22 +81,44 @@ class ScheduleController extends Controller
         return response()->json(['ok' => true, 'message' => ($moved ? 'Moved ' : 'Booked ').$wo->reference.' and texted the tenant.']);
     }
 
-    /** "Optimize routes": reorder every tech's day for the least driving and re-time the windows (texts tenants whose time moved). */
-    public function optimize(Request $request, RouteOptimizer $optimizer)
+    /** Suggest tech + time for every unbooked job ("place"), or drive-saving moves for booked visits 24+ hours out ("move"). */
+    public function propose(Request $request, Planner $planner)
     {
         $loc = $this->location($request);
         $date = $this->date($request, $loc->timezone);
-        $moved = 0;
-        $saved = 0;
-        foreach ($this->techs($loc) as $tech) {
-            $r = $optimizer->optimizeDay($tech, $date, notify: true);
-            $moved += $r['moved'];
-            $saved += max(0, $r['before'] - $r['after']);
+        if ($request->input('kind') === 'move') {
+            $r = $planner->proposeMoves($loc);
+            $msg = $r['moves']
+                ? "Suggested {$r['moves']} ".Str::plural('move', $r['moves'])." that save about {$r['saved']} min of driving. Nothing changes until you approve; tenants get at least 24 hours' notice."
+                : 'No moves would save meaningful driving for visits 24+ hours away.';
+        } else {
+            $n = $planner->proposeUnbooked($loc);
+            $msg = $n ? "Placed {$n} unbooked ".Str::plural('job', $n).' on the calendar as suggestions. Tick the ones you want and press Approve.'
+                : 'No unbooked jobs could be placed in the next few days.';
+            $first = WorkOrder::where('location_id', $loc->id)->where('proposed_kind', 'place')->min('proposed_start');
+            if ($first) {
+                $date = CarbonImmutable::parse($first)->setTimezone($loc->timezone);
+            }
         }
 
-        return redirect()->route('schedule', ['date' => $date->toDateString()])->with('status', $moved
-            ? "Routes optimized: {$moved} ".Str::plural('visit', $moved)." re-timed, about {$saved} fewer minutes of driving. Tenants whose time changed were texted."
-            : 'Routes are already in the shortest order.');
+        return redirect()->route('schedule', ['date' => $date->toDateString(), 'view' => $request->input('view', 'day')])->with('status', $msg);
+    }
+
+    public function approve(Request $request, Planner $planner)
+    {
+        $data = $request->validate(['ids' => 'array', 'ids.*' => 'integer', 'action' => 'required|in:approve,dismiss']);
+        $ids = collect($data['ids'] ?? [])->unique();
+        if ($ids->isEmpty()) {
+            return back()->withErrors(['ids' => 'Tick at least one suggestion first.']);
+        }
+        if ($data['action'] === 'dismiss') {
+            $planner->dismiss($ids);
+
+            return back()->with('status', 'Dismissed '.$ids->count().' '.Str::plural('suggestion', $ids->count()).'.');
+        }
+        $n = $planner->approve($ids, $request->user());
+
+        return back()->with('status', "Approved {$n}. Tenants were texted their times.");
     }
 
     public function map(Request $request, RoutePlanner $planner)
@@ -165,7 +189,7 @@ class ScheduleController extends Controller
             ?? Location::orderBy('rm_location_id')->firstOrFail();
     }
 
-    /** Best open times for one job, with the reasons, for the "Find best time" box. */
+    /** "Find best tech and time": techs with the right skill and room for the whole job, best first, with the reasons. */
     public function suggest(WorkOrder $workOrder, SlotFinder $finder)
     {
         $workOrder->loadMissing('location', 'property', 'unit');
@@ -173,18 +197,21 @@ class ScheduleController extends Controller
         $techs = $this->techs($workOrder->location);
         $colors = $this->colors($techs);
         $levels = [1 => 'Basic', 2 => 'Solid', 3 => 'Expert'];
+        $hours = fn (int $m) => $m < 60 ? $m.' min' : rtrim(rtrim(number_format($m / 60, 1), '0'), '.').' hr';
 
-        $slots = collect($finder->find($workOrder, 6))->sortByDesc('score')->values()->map(function (Slot $slot, $i) use ($tz, $colors, $levels, $workOrder) {
+        $found = $finder->bestPerTech($workOrder, 1, 4);
+        $slots = collect($found)->values()->map(function (Slot $slot, $i) use ($tz, $colors, $levels, $workOrder, $hours) {
             $start = $slot->start->setTimezone($tz);
             $w = $slot->why;
             $reasons = [];
             if ($workOrder->trade) {
                 $reasons[] = ($levels[$w['skill_level'] ?? 2] ?? 'Solid').' at '.$workOrder->tradeLabel();
             }
+            $reasons[] = $hours((int) ($w['open_minutes'] ?? 0)).' open that day, room for the whole '.$hours((int) ($w['job_minutes'] ?? 60)).' job';
             if (! empty($w['same_building'])) {
                 $reasons[] = 'already at this building that day';
             } elseif (($w['nearest_km'] ?? null) !== null) {
-                $reasons[] = Geo::driveMinutes($w['nearest_km']).' min drive from that tech\'s nearest stop';
+                $reasons[] = Geo::driveMinutes($w['nearest_km']).' min drive from their nearest stop';
             }
             $reasons[] = ($w['jobs_that_day'] ?? 0) === 0 ? 'nothing else booked that day' : $w['jobs_that_day'].' other '.Str::plural('job', $w['jobs_that_day']).' that day';
 
@@ -201,6 +228,9 @@ class ScheduleController extends Controller
             ];
         });
 
+        $qualified = $finder->qualifiedTechs($workOrder);
+        $withRoom = $slots->pluck('technician_id')->unique();
+
         return response()->json([
             'job' => [
                 'id' => $workOrder->id, 'ref' => $workOrder->reference, 'trade' => $workOrder->tradeLabel(),
@@ -208,6 +238,8 @@ class ScheduleController extends Controller
                 'where' => trim(($workOrder->property?->name ?? $workOrder->address_text).' '.($workOrder->unit?->name ?? '')),
             ],
             'slots' => $slots,
+            'qualified' => $qualified->count(),
+            'no_room' => $qualified->reject(fn ($t) => $withRoom->contains($t->id))->map->name->values(),
         ]);
     }
 

@@ -54,6 +54,7 @@ class WorkOrder extends Model
             'en_route_at' => 'datetime',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
+            'proposed_start' => 'datetime',
             'closed_at' => 'datetime',
             'rm_synced_at' => 'datetime',
         ];
@@ -94,6 +95,17 @@ class WorkOrder extends Model
     public function tenant(): BelongsTo
     {
         return $this->belongsTo(Tenant::class);
+    }
+
+    public function proposedTechnician(): BelongsTo
+    {
+        return $this->belongsTo(Technician::class, 'proposed_technician_id');
+    }
+
+    /** Forget any suggested tech/time waiting for approval. */
+    public function clearProposal(): void
+    {
+        $this->forceFill(['proposed_technician_id' => null, 'proposed_start' => null, 'proposed_kind' => null, 'proposed_reason' => null])->save();
     }
 
     public function technician(): BelongsTo

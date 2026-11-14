@@ -66,6 +66,8 @@
     <form class="row" method="post" action="{{ route('queue.message', $wo) }}">@csrf<div><input name="body" placeholder="Text the tenant from the Axiom number" required maxlength="600"></div><div style="flex:0"><button>Send</button></div></form>
 </div>
 
+@include('work-orders._kit')
+
 @if($wo->parts->isNotEmpty())
 <div class="card"><h3 style="margin-top:0">Parts</h3>
     @foreach($wo->parts as $p)<div>{{ $p->part_name }} × {{ $p->quantity }} <span class="muted">{{ $p->used ? 'used' : ($p->suggested ? 'suggested '.round(100 * ($p->suggestion_confidence ?? 0)).'%' : '') }}</span></div>@endforeach

@@ -6,14 +6,16 @@
     <meta name="theme-color" content="#1d4ed8">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <link rel="manifest" href="/manifest.webmanifest">
-    <title>@yield('title', 'Axiom Maintenance')</title>
+    <link rel="icon" href="/img/ams-logo.svg" type="image/svg+xml">
+    <title>@yield('title', 'Axiom Maintenance Services')</title>
     <style>
         :root { --bg:#f6f7f9; --card:#fff; --ink:#111827; --muted:#6b7280; --line:#e5e7eb; --brand:#1d4ed8; --red:#b91c1c; --amber:#b45309; --green:#047857; }
         * { box-sizing: border-box; }
         body { margin:0; font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--ink); }
         a { color:var(--brand); text-decoration:none; }
         header { background:var(--card); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
-        header strong { margin-right:auto; }
+        header .brand { margin-right:auto; display:flex; align-items:center; gap:9px; color:var(--ink); }
+        header .brand img { border-radius:7px; }
         main { max-width:1100px; margin:0 auto; padding:16px; } main.wide { max-width:none; }
         .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:14px; }
         .grid { display:grid; gap:12px; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); }
@@ -43,7 +45,7 @@
 <body>
 @auth
 <header>
-    <strong>Axiom Maintenance</strong>
+    <a href="/" class="brand"><img src="/img/ams-logo.svg" alt="" width="32" height="32"><strong>Axiom Maintenance Services</strong></a>
     @if(auth()->user()->isAdmin())
         <a href="{{ route('admin.dashboard') }}">Dashboard</a>
         <a href="{{ route('admin.technicians') }}">People</a>

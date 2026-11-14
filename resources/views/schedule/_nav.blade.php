@@ -25,10 +25,5 @@
         <a class="btn {{ $page === 'schedule' && ($view ?? '') === 'week' ? '' : 'secondary' }}" href="{{ route('schedule', $q($date, ['view' => 'week'])) }}">Week</a>
         <a class="btn {{ $page === 'map' ? '' : 'secondary' }}" href="{{ route('map', ['date' => $date->toDateString()]) }}">Map</a>
     </div>
-    @if(($view ?? 'day') === 'day')
-        <form method="post" action="{{ route('schedule.optimize') }}" class="seg" onsubmit="return confirm('Reorder every tech\'s stops on this day for the least driving? Tenants whose time changes get a text.')">
-            @csrf<input type="hidden" name="date" value="{{ $date->toDateString() }}"><input type="hidden" name="location" value="{{ $loc->id }}">
-            <button title="Order each tech's stops by shortest drive from the office and re-time the windows">Optimize routes</button>
-        </form>
-    @endif
+
 </div>

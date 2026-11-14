@@ -139,6 +139,14 @@ class ScheduleTest extends MaintenanceTestCase
         $this->assertTrue($res['slots'][0]['best']);
         $this->assertSame('Mike Plumber', $res['slots'][0]['tech']);
         $this->assertStringContainsString('Plumbing', implode(' ', $res['slots'][0]['reasons']));
+        $this->assertStringContainsString('room for the whole 45 min job', implode(' ', $res['slots'][0]['reasons']));
+
+        // Only techs with plumbing skills, at most two openings each, and each opening fits the whole job.
+        $plumbers = Technician::all()->filter(fn ($t) => $t->skillLevel('plumbing') > 0)->pluck('id');
+        $this->assertEmpty(collect($res['slots'])->pluck('technician_id')->diff($plumbers));
+        $this->assertTrue(collect($res['slots'])->countBy('technician_id')->every(fn ($n) => $n <= 2));
+        $this->assertGreaterThan(1, collect($res['slots'])->pluck('technician_id')->unique()->count(), 'offers more than one tech');
+        $this->assertSame($plumbers->count(), $res['qualified']);
     }
 
     public function test_office_can_enter_a_work_order_and_have_it_booked_automatically(): void

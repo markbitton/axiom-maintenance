@@ -9,6 +9,7 @@ use App\Models\Photo;
 use App\Models\StockLevel;
 use App\Models\WorkOrder;
 use App\Services\Parts\PartSuggester;
+use App\Services\Parts\ToolKit;
 use App\Services\Photos\R2Storage;
 use App\Services\Scheduling\RoutePlanner;
 use App\Services\Scheduling\Texts;
@@ -42,6 +43,7 @@ class JobController extends Controller
             'wo' => $workOrder,
             'history' => $history,
             'missing' => $parts->missingFromTruck($workOrder),
+            'kit' => app(ToolKit::class)->forWorkOrder($workOrder),
             'catalog' => Part::orderBy('name')->get(['id', 'name']),
             'mapsLink' => RoutePlanner::mapsLink($workOrder),
             'appleLink' => RoutePlanner::appleMapsLink($workOrder),

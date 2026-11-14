@@ -154,10 +154,11 @@ class DemoWorkOrdersSeeder extends Seeder
 
         $this->needsAPerson($idaho, $tenants, $techs, $today);
 
-        // Put each tech's booked days in the shortest driving order from the office (no texts for demo data).
+        // Today and tomorrow are already in the shortest driving order; later days are left as booked so
+        // "Suggest moves to cut drive time" has something to suggest.
         $optimizer = app(RouteOptimizer::class);
         foreach ($techs as $tech) {
-            foreach ($days->filter(fn ($d) => $d->gte($today)) as $day) {
+            foreach ($days->filter(fn ($d) => $d->gte($today) && $d->lte($today->addDay())) as $day) {
                 $optimizer->optimizeDay($tech, $day, notify: false);
             }
         }

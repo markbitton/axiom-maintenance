@@ -17,8 +17,11 @@ class RouteOptimizer
 {
     public function __construct(private Messenger $messenger) {}
 
-    /** @return array{stops:int, before:int, after:int, moved:int} drive minutes before and after */
-    public function optimizeDay(Technician $tech, CarbonImmutable $day, bool $notify = false): array
+    /**
+     * @param  bool  $dryRun  work out the better order and times without changing anything
+     * @return array{stops:int, before:int, after:int, moved:int, plan:list<array{0:WorkOrder,1:CarbonImmutable,2:int}>} drive minutes before and after
+     */
+    public function optimizeDay(Technician $tech, CarbonImmutable $day, bool $notify = false, bool $dryRun = false): array
     {
         $tech->loadMissing('location');
         $tz = $tech->location->timezone;
@@ -31,7 +34,7 @@ class RouteOptimizer
             ->whereBetween('scheduled_start', [$from->utc(), $from->addDay()->utc()])
             ->orderBy('scheduled_start')->get();
 
-        $result = ['stops' => $jobs->count(), 'before' => $this->driveMinutes($home, $jobs), 'after' => 0, 'moved' => 0];
+        $result = ['stops' => $jobs->count(), 'before' => $this->driveMinutes($home, $jobs), 'after' => 0, 'moved' => 0, 'plan' => []];
         if ($jobs->count() < 2 || ! $home) {
             $result['after'] = $result['before'];
 
@@ -55,6 +58,15 @@ class RouteOptimizer
                 $start = $previousStart->addMinutes(30);
             }
             $changed = ! $wo->scheduled_start->equalTo($start->utc());
+            $result['plan'][] = [$wo, $start, $i + 1];
+            if ($dryRun) {
+                $result['moved'] += $changed ? 1 : 0;
+                $clock = $clock->addMinutes((int) ($wo->estimated_minutes ?: 60));
+                $here = $wo->coordinates() ?? $here;
+                $previousStart = $start;
+
+                continue;
+            }
             $wo->forceFill([
                 'scheduled_start' => $start->utc(), 'scheduled_end' => $start->addMinutes($window)->utc(), 'route_position' => $i + 1,
             ])->save();

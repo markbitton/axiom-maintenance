@@ -59,7 +59,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/queue', [QueueController::class, 'index'])->name('queue');
         Route::get('/schedule', [ScheduleController::class, 'index'])->name('schedule');
         Route::post('/schedule/move', [ScheduleController::class, 'move'])->name('schedule.move');
-        Route::post('/schedule/optimize', [ScheduleController::class, 'optimize'])->name('schedule.optimize');
+        Route::post('/schedule/propose', [ScheduleController::class, 'propose'])->name('schedule.propose');
+        Route::post('/schedule/approve', [ScheduleController::class, 'approve'])->name('schedule.approve');
         Route::get('/invoices', [InvoiceController::class, 'index'])->name('invoices');
         Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->name('invoices.show');
         Route::post('/invoices/{invoice}/status', [InvoiceController::class, 'status'])->name('invoices.status');

@@ -28,13 +28,7 @@
     @endif
 </div>
 
-@if($wo->parts->where('suggested', true)->isNotEmpty())
-<div class="card">
-    <h3 style="margin-top:0">Likely parts</h3>
-    @if($missing)<p class="error">Not on your truck: {{ implode(', ', $missing) }}</p>@endif
-    @foreach($wo->parts->where('suggested', true) as $p)<div>{{ $p->part_name }} <span class="muted">{{ round(100 * ($p->suggestion_confidence ?? 0)) }}%</span></div>@endforeach
-</div>
-@endif
+@include('work-orders._kit', ['forTech' => true])
 
 @if($photosEnabled)
 <div class="card">

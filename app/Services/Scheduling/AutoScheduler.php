@@ -128,6 +128,7 @@ class AutoScheduler
             'scheduled_start' => $start,
             'scheduled_end' => $end,
             'status' => WorkOrder::STATUS_SCHEDULED,
+            'proposed_technician_id' => null, 'proposed_start' => null, 'proposed_kind' => null, 'proposed_reason' => null,
         ])->save();
         if ($wo->review_reason && ! str_starts_with($wo->review_reason, 'Not sure')) {
             $wo->clearReview();

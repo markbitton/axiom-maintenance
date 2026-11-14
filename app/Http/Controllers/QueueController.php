@@ -6,6 +6,7 @@ use App\Jobs\PushToRentManager;
 use App\Models\Technician;
 use App\Models\WorkOrder;
 use App\Services\Billing\Invoicer;
+use App\Services\Parts\ToolKit;
 use App\Services\Photos\R2Storage;
 use App\Services\Scheduling\AutoScheduler;
 use App\Services\Scheduling\SlotFinder;
@@ -42,6 +43,7 @@ class QueueController extends Controller
             'suggestions' => in_array($workOrder->status, WorkOrder::OPEN_STATUSES, true) ? $finder->find($workOrder, 5) : [],
             'techs' => Technician::with('user')->where('location_id', $workOrder->location_id)->where('active', true)->get(),
             'unbilled' => $invoicer->preview($workOrder),
+            'kit' => app(ToolKit::class)->forWorkOrder($workOrder),
             'photoUrls' => $r2->isConfigured() ? $workOrder->photos->whereNull('purged_at')->mapWithKeys(fn ($p) => [$p->id => $r2->viewUrl($p->object_key, 900)]) : collect(),
         ]);
     }

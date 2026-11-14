@@ -1,8 +1,12 @@
 @extends('layouts.app')
 @section('title', 'Sign in')
 @section('content')
-<div class="card" style="max-width:380px;margin:40px auto">
-    <h2 style="margin-top:0">Axiom Maintenance</h2>
+<div class="card" style="max-width:380px;margin:50px auto;padding:28px 26px;box-shadow:0 10px 30px rgba(15,42,74,.12);border-top:4px solid #f59e0b">
+    <div style="text-align:center;margin-bottom:14px">
+        <img src="/img/ams-logo.svg" alt="AMS" width="76" height="76" style="border-radius:16px">
+        <h2 style="margin:10px 0 0;color:#0f2a4a">Axiom Maintenance Services</h2>
+        <div class="muted">Sign in to continue</div>
+    </div>
     <form method="post" action="/login">
         @csrf
         <label for="email">Email</label>
